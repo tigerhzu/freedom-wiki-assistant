@@ -2,6 +2,7 @@
 node_modules/
 dist/
 coverage/
+.release/
 
 ## Environment and credentials (never commit real values)
 .env
