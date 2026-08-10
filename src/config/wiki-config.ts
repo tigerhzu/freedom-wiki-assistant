@@ -24,6 +24,14 @@ import type { EditorKind, UploadApiConfig } from '../shared/types';
  */
 export const WIKI_ORIGIN = (import.meta.env.VITE_WIKI_ORIGIN?.trim() || 'https://wiki.example.invalid').replace(/\/$/, '');
 
+/**
+ * Base path for newly created customer shortcuts. It is injected at build
+ * time so installations with a different Wiki hierarchy do not need a code
+ * change. A leading slash is required; the checked-in fallback is generic.
+ */
+const configuredCustomerBasePath = import.meta.env.VITE_CUSTOMER_BASE_PATH?.trim().replace(/\/+$/, '');
+const CUSTOMER_BASE_PATH = configuredCustomerBasePath?.startsWith('/') ? configuredCustomerBasePath : '/docs/clients';
+
 export interface EditorSelectorCandidate {
   selector: string;
   kind: EditorKind;
@@ -188,7 +196,7 @@ export const wikiConfig = {
      * 上層目錄「eng」，「Customers」為大寫開頭；不可省略 /eng/，
      * 也不可把 Customers 小寫）。
      */
-    basePath: '/docs/clients',
+    basePath: CUSTOMER_BASE_PATH,
 
     /**
      * 依客戶名稱組出頁面路徑。刻意保留使用者輸入的原始大小寫 —

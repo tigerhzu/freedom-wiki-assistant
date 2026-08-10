@@ -133,8 +133,9 @@ npm run build
 | 變數 | 必填 | 說明 |
 | --- | --- | --- |
 | `VITE_WIKI_ORIGIN` | 是 | 目標 Wiki 的 HTTPS origin，例如 `https://wiki.example.invalid`；不可帶路徑、查詢字串或結尾斜線。 |
+| `VITE_CUSTOMER_BASE_PATH` | 否 | 新增客戶捷徑時預填的 Wiki 路徑，例如 `/docs/clients`。未設定時使用此範例路徑。 |
 
-建置時，Vite 會將此值編譯至程式碼，`scripts/copy-static.mjs` 也會以同一值產生 `dist/manifest.json` 的 `host_permissions` 與注入比對規則。未設定時會使用不可路由的假網域，因此不會意外連線到任何站點。
+建置時，Vite 會將這些值編譯至程式碼，`scripts/copy-static.mjs` 也會以 `VITE_WIKI_ORIGIN` 產生 `dist/manifest.json` 的 `host_permissions` 與注入比對規則。未設定 origin 時會使用不可路由的假網域，因此不會意外連線到任何站點。
 
 Azure OpenAI 的 Endpoint、Deployment、API Key 與 API Version 由擴充功能選項頁設定，僅存於使用者本機的 `chrome.storage.local`，不屬於 `.env`、原始碼或 Git Repository。
 

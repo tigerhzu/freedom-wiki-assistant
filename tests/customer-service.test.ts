@@ -214,19 +214,19 @@ describe('wikiConfig.customers.defaultPagePathFor (real-site path: /en/eng/Custo
   const derive = (name: string) => wikiConfig.customers.defaultPagePathFor(name);
 
   it('preserves the customer name\'s case — real pages are not necessarily lowercased', () => {
-    expect(derive('ExampleCo')).toBe('/docs/clients/ExampleCo');
-    expect(derive('exampleco')).toBe('/docs/clients/exampleco');
+    expect(derive('ExampleCo')).toBe(`${wikiConfig.customers.basePath}/ExampleCo`);
+    expect(derive('exampleco')).toBe(`${wikiConfig.customers.basePath}/exampleco`);
   });
 
   it('trims surrounding whitespace', () => {
-    expect(derive('  DEMO  ')).toBe('/docs/clients/DEMO');
+    expect(derive('  DEMO  ')).toBe(`${wikiConfig.customers.basePath}/DEMO`);
   });
 
   it('replaces slashes so a name can never inject extra path segments', () => {
-    expect(derive('A/B')).toBe('/docs/clients/A-B');
+    expect(derive('A/B')).toBe(`${wikiConfig.customers.basePath}/A-B`);
   });
 
   it('falls back to "customer" when nothing usable is left', () => {
-    expect(derive('')).toBe('/docs/clients/customer');
+    expect(derive('')).toBe(`${wikiConfig.customers.basePath}/customer`);
   });
 });
