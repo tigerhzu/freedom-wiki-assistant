@@ -1,0 +1,36 @@
+## Dependencies and build output
+node_modules/
+dist/
+coverage/
+
+## Environment and credentials (never commit real values)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+
+## Browser automation, local evidence, logs and temporary files
+.playwright-mcp/
+AIQ_REPORT_EVIDENCE.md
+*.log
+*.tmp
+*.temp
+*.cache
+
+## Local assistant / IDE configuration
+.claude/
+.git-legacy-backup/
+.vscode/
+.idea/
+*.code-workspace
+
+## Internal discovery notes can contain real Wiki paths or system details
+docs/DISCOVERY.md
+
+## OS files
+.DS_Store
+Thumbs.db
