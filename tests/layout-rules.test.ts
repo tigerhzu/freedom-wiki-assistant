@@ -32,7 +32,7 @@ const skillFiles = import.meta.glob('../.claude/skills/wiki-layout-extension/ref
   eager: true,
 }) as Record<string, string>;
 
-const skillReferenceEntry = Object.entries(skillFiles).find(([path]) => path.endsWith('color-annotation.md'));
+const skillReferenceEntry = Object.entries(skillFiles).find(([path]) => path.endsWith('color-annotation-revised.md'));
 
 describe('color palette', () => {
   it('only uses colors that exist in the right-click menu presets', () => {
@@ -152,10 +152,11 @@ describe('buildLayoutRulesPrompt', () => {
     expect(prompt).toContain('<span style="color:…">');
   });
 
-  it('states the usage limits as numbers', () => {
-    expect(prompt).toContain(String(colorUsageLimits.maxMarksPerSection));
+  it('states the revised usage guidance and limits', () => {
+    expect(prompt).toContain(colorUsageLimits.shortSectionGroups);
     expect(prompt).toContain(String(colorUsageLimits.maxColorsPerPage));
-    expect(prompt).toContain('15%');
+    expect(prompt).toContain('20%');
+    expect(prompt).toContain('25%');
   });
 
   it('includes the forbidden zones, structure rules, preserve rules and safety rules', () => {

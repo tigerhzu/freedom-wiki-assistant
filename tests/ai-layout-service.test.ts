@@ -130,6 +130,15 @@ describe('runAiLayout', () => {
     expect(result.warnings.some((w) => w.includes('10.0.0.5'))).toBe(true);
   });
 
+  it('rejects a result that masks a source password instead of offering it for apply', async () => {
+    callAzureChatCompletion.mockResolvedValue(
+      completion('{"formatted_content": "密碼：[已遮蔽]", "changes": [], "warnings": []}'),
+    );
+    await expect(runAiLayout('密碼：local-pass_123', settingsWithAzure)).rejects.toMatchObject({
+      code: 'content-preservation-failed',
+    });
+  });
+
   it('propagates an AzureOpenAiError from the client as an AiLayoutError with the same code', async () => {
     callAzureChatCompletion.mockRejectedValue(new AzureOpenAiError('timed out', 'timeout'));
     await expect(runAiLayout('原文', settingsWithAzure)).rejects.toMatchObject({ code: 'timeout' });

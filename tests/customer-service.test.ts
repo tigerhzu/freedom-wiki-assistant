@@ -19,6 +19,8 @@ import {
   customerBranchKey,
   deleteBranch,
   deleteCustomer,
+  exportCustomers,
+  importCustomers,
   listAllBranches,
   listBranches,
   listCustomers,
@@ -54,6 +56,66 @@ describe('customer-service', () => {
     await createCustomer({ name: 'BEN', pagePath: '/customers/ben' });
     // A fresh listCustomers() call re-reads from the (mocked) chrome.storage.local backing store.
     expect((await listCustomers())[0].name).toBe('BEN');
+  });
+
+  it('exports customers with their branches in a portable JSON format', async () => {
+    await createCustomer({ name: 'SampleCo', pagePath: '/docs/clients/sample-client' });
+    await createBranch('SampleCo', { name: 'SOP', target: '/docs/clients/sample-client/SOP' });
+
+    const exported = JSON.parse(await exportCustomers());
+    expect(exported).toMatchObject({
+      format: 'freedom-wiki-assistant-customers',
+      version: 1,
+      customers: [
+        {
+          name: 'SampleCo',
+          pagePath: '/docs/clients/sample-client',
+          branches: [{ name: 'SOP', target: '/docs/clients/sample-client/SOP' }],
+        },
+      ],
+    });
+    expect(exported.customers[0]).not.toHaveProperty('id');
+  });
+
+  it('imports a backup as a merge without overwriting existing customers or branches', async () => {
+    await createCustomer({ name: 'SampleCo', pagePath: '/docs/clients/current-path' });
+    await createBranch('SampleCo', { name: 'Existing', target: '/existing' });
+    const backup = JSON.stringify({
+      format: 'freedom-wiki-assistant-customers',
+      version: 1,
+      customers: [
+        {
+          name: 'sampleco',
+          pagePath: '/ignored-on-duplicate',
+          branches: [
+            { name: 'Existing', target: '/existing' },
+            { name: 'SOP', target: 'docs/clients/sample-client/SOP/' },
+          ],
+        },
+        { name: 'ExampleCo', pagePath: '/docs/clients/example-client', branches: [] },
+      ],
+    });
+
+    await expect(importCustomers(backup)).resolves.toEqual({
+      customersAdded: 1,
+      branchesAdded: 1,
+      customersSkipped: 1,
+      branchesSkipped: 1,
+    });
+    expect((await listCustomers()).map((customer) => [customer.name, customer.pagePath])).toEqual([
+      ['SampleCo', '/docs/clients/current-path'],
+      ['ExampleCo', '/docs/clients/example-client'],
+    ]);
+    expect((await listBranches('SampleCo')).map((branch) => [branch.name, branch.target])).toEqual([
+      ['Existing', '/existing'],
+      ['SOP', '/docs/clients/sample-client/SOP'],
+    ]);
+  });
+
+  it('rejects malformed customer backups before changing stored data', async () => {
+    await createCustomer({ name: 'SampleCo', pagePath: '/docs/clients/sample-client' });
+    await expect(importCustomers('{"format":"wrong"}')).rejects.toThrow('不是有效的客戶匯出檔');
+    expect(await listCustomers()).toHaveLength(1);
   });
 });
 

@@ -26,6 +26,32 @@ export interface CustomerInput {
   pagePath: string;
 }
 
+export interface CustomerExportBranch {
+  name: string;
+  target: string;
+}
+
+export interface CustomerExportEntry {
+  name: string;
+  pagePath: string;
+  branches: CustomerExportBranch[];
+}
+
+/** Portable backup format. IDs and timestamps are intentionally omitted on export. */
+export interface CustomerExport {
+  format: 'freedom-wiki-assistant-customers';
+  version: 1;
+  exportedAt: string;
+  customers: CustomerExportEntry[];
+}
+
+export interface CustomerImportResult {
+  customersAdded: number;
+  branchesAdded: number;
+  customersSkipped: number;
+  branchesSkipped: number;
+}
+
 export async function createCustomer(input: CustomerInput): Promise<Customer> {
   const customer: Customer = { id: newId('cust'), createdAt: new Date().toISOString(), ...input };
   const all = await getCustomers();
@@ -52,6 +78,121 @@ export async function deleteCustomer(id: string): Promise<void> {
   const next = { ...branches };
   delete next[key];
   await saveCustomerBranches(next);
+}
+
+/* ── import / export ── */
+
+/** Exports the directory and its branches without local-only IDs or timestamps. */
+export async function exportCustomers(): Promise<string> {
+  const [customers, branchMap] = await Promise.all([getCustomers(), getCustomerBranches()]);
+  const payload: CustomerExport = {
+    format: 'freedom-wiki-assistant-customers',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    customers: customers.map((customer) => ({
+      name: customer.name,
+      pagePath: customer.pagePath,
+      branches: (branchMap[customerBranchKey(customer.name)] ?? []).map(({ name, target }) => ({ name, target })),
+    })),
+  };
+  return JSON.stringify(payload, null, 2);
+}
+
+/**
+ * Imports a customer backup as a non-destructive merge. Customers are matched
+ * by their case-insensitive customer code; branches by their name and target.
+ * All input is validated before either storage key is written.
+ */
+export async function importCustomers(json: string): Promise<CustomerImportResult> {
+  const incoming = parseCustomerExport(json);
+  const [existingCustomers, existingBranches] = await Promise.all([getCustomers(), getCustomerBranches()]);
+  const nextCustomers = [...existingCustomers];
+  const nextBranches: CustomerBranchMap = Object.fromEntries(
+    Object.entries(existingBranches).map(([key, branches]) => [key, [...branches]]),
+  );
+  const knownCustomerKeys = new Set(nextCustomers.map((customer) => customerBranchKey(customer.name)));
+  let customersAdded = 0;
+  let branchesAdded = 0;
+  let customersSkipped = 0;
+  let branchesSkipped = 0;
+
+  for (const entry of incoming.customers) {
+    const key = customerBranchKey(entry.name);
+    if (knownCustomerKeys.has(key)) {
+      customersSkipped += 1;
+    } else {
+      nextCustomers.push({
+        id: newId('cust'),
+        name: entry.name,
+        pagePath: entry.pagePath,
+        createdAt: new Date().toISOString(),
+      });
+      knownCustomerKeys.add(key);
+      customersAdded += 1;
+    }
+
+    const bucket = nextBranches[key] ?? [];
+    const knownBranches = new Set(bucket.map((branch) => branchIdentity(branch.name, branch.target)));
+    for (const branch of entry.branches) {
+      const identity = branchIdentity(branch.name, branch.target);
+      if (knownBranches.has(identity)) {
+        branchesSkipped += 1;
+        continue;
+      }
+      bucket.push({ id: newId('branch'), ...branch, createdAt: new Date().toISOString() });
+      knownBranches.add(identity);
+      branchesAdded += 1;
+    }
+    if (bucket.length > 0) nextBranches[key] = bucket;
+  }
+
+  await Promise.all([saveCustomers(nextCustomers), saveCustomerBranches(nextBranches)]);
+  return { customersAdded, branchesAdded, customersSkipped, branchesSkipped };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function normalizeCustomerPagePath(input: string): string | null {
+  const path = input.trim().replace(/\/+$/, '');
+  if (!path || !path.startsWith('/') || path.startsWith('//') || /[\r\n]/.test(path)) return null;
+  return path;
+}
+
+function branchIdentity(name: string, target: string): string {
+  return `${name}\u0000${target}`;
+}
+
+function parseCustomerExport(json: string): CustomerExport {
+  const parsed: unknown = JSON.parse(json);
+  if (!isRecord(parsed) || parsed.format !== 'freedom-wiki-assistant-customers' || parsed.version !== 1) {
+    throw new Error('不是有效的客戶匯出檔');
+  }
+  if (!Array.isArray(parsed.customers)) throw new Error('客戶匯出檔缺少 customers 陣列');
+
+  const customers: CustomerExportEntry[] = parsed.customers.map((raw, index) => {
+    if (!isRecord(raw) || typeof raw.name !== 'string' || typeof raw.pagePath !== 'string' || !Array.isArray(raw.branches)) {
+      throw new Error(`第 ${index + 1} 筆客戶資料格式不正確`);
+    }
+    const name = raw.name.trim();
+    const pagePath = normalizeCustomerPagePath(raw.pagePath);
+    if (!name || !pagePath) throw new Error(`第 ${index + 1} 筆客戶名稱或 Wiki 路徑無效`);
+    const branches: CustomerExportBranch[] = raw.branches.map((branch, branchIndex) => {
+      if (!isRecord(branch) || typeof branch.name !== 'string' || typeof branch.target !== 'string') {
+        throw new Error(`第 ${index + 1} 筆客戶的第 ${branchIndex + 1} 個分支格式不正確`);
+      }
+      return validateBranchInput({ name: branch.name, target: branch.target });
+    });
+    return { name, pagePath, branches };
+  });
+
+  return {
+    format: 'freedom-wiki-assistant-customers',
+    version: 1,
+    exportedAt: typeof parsed.exportedAt === 'string' ? parsed.exportedAt : '',
+    customers,
+  };
 }
 
 /* ── branches (客戶分支) ── */

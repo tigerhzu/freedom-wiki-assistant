@@ -38,6 +38,7 @@ export type AiLayoutErrorCode =
   | 'token-limit'
   | 'invalid-json'
   | 'empty-response'
+  | 'content-preservation-failed'
   | 'http-error'
   | 'unknown';
 

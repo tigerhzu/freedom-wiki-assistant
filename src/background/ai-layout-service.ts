@@ -7,6 +7,7 @@ import {
 } from '../shared/azure-openai-client';
 import {
   findForbiddenColorSyntax,
+  findMissingPasswordValues,
   findMissingPreservedTokens,
   findUnbalancedFormattingTags,
 } from '../shared/ai-layout-guard';
@@ -207,6 +208,17 @@ export async function runAiLayout(
 
   const result = parseAiLayoutResponse(completion.text);
   if (completion.usage) result.usage = completion.usage;
+
+  // A masked password is data loss, not an advisory formatting concern. Do
+  // not expose the value in an error, warning, or log; just refuse to offer
+  // this result for apply so the editor remains untouched.
+  if (findMissingPasswordValues(content, result.formatted_content).length > 0) {
+    throw new AiLayoutError(
+      'AI 回傳結果疑似遮蔽或改寫原文密碼；為避免資料遺失，已停止套用。請重試或改用快速排版。',
+      'content-preservation-failed',
+    );
+  }
+
   const missing = findMissingPreservedTokens(content, result.formatted_content);
   if (missing.length > 0) {
     result.warnings = [

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   findForbiddenColorSyntax,
+  findMissingPasswordValues,
   findMissingPreservedTokens,
   findUnbalancedFormattingTags,
 } from '../src/shared/ai-layout-guard';
@@ -56,6 +57,19 @@ describe('findMissingPreservedTokens', () => {
     const original = '伺服器 IP 為 10.0.0.5，執行 `systemctl restart nginx`。';
     const formatted = '伺服器 IP 為 <font color="blue">10.0.0.5</font>，執行 `systemctl restart nginx`。';
     expect(findMissingPreservedTokens(original, formatted)).toEqual([]);
+  });
+});
+
+describe('findMissingPasswordValues', () => {
+  it('accepts a password kept verbatim even when Markdown emphasis surrounds it', () => {
+    const source = '本機帳號 **admin**，密碼 **local-pass_123**。';
+    expect(findMissingPasswordValues(source, source)).toEqual([]);
+  });
+
+  it('flags a password replaced with a masking label without returning it to the UI', () => {
+    const source = 'Password: `local-pass_123`';
+    const formatted = 'Password: `[已遮蔽]`';
+    expect(findMissingPasswordValues(source, formatted)).toEqual(['local-pass_123']);
   });
 });
 

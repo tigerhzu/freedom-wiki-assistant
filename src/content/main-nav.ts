@@ -5,6 +5,8 @@ import {
   customerBranchKey,
   deleteBranch,
   deleteCustomer,
+  exportCustomers,
+  importCustomers,
   listAllBranches,
   listCustomers,
   moveBranch,
@@ -317,8 +319,14 @@ export class MainNav {
     closeBtn.addEventListener('click', () => this.closeCustomerDrawer());
     const addBtn = el('button', { class: 'fwa-btn fwa-btn-primary', text: '＋ 新增客戶' });
     addBtn.addEventListener('click', () => this.openAddCustomerModal());
+    const importBtn = el('button', { class: 'fwa-btn', text: '匯入 JSON' });
+    importBtn.addEventListener('click', () => this.importCustomers());
+    const exportBtn = el('button', { class: 'fwa-btn', text: '匯出 JSON' });
+    exportBtn.addEventListener('click', () => void this.exportCustomers());
     const header = el('div', { class: 'fwa-panel-header' }, [
       el('span', { class: 'title', text: '客戶目錄' }),
+      importBtn,
+      exportBtn,
       addBtn,
       closeBtn,
     ]);
@@ -328,6 +336,39 @@ export class MainNav {
     root.appendChild(this.customerPanel);
     void this.renderCustomerList();
     void this.persistExpanded(true);
+  }
+
+  private async exportCustomers(): Promise<void> {
+    const json = await exportCustomers();
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = el('a', {
+      href: url,
+      download: `fwa-customers-${new Date().toISOString().slice(0, 10)}.json`,
+    });
+    link.click();
+    URL.revokeObjectURL(url);
+    showToast('客戶目錄已匯出', 'success');
+  }
+
+  private importCustomers(): void {
+    const input = el('input', { type: 'file', accept: 'application/json' });
+    input.addEventListener('change', async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        const result = await importCustomers(await file.text());
+        showToast(
+          `客戶已匯入：新增 ${result.customersAdded} 位客戶、${result.branchesAdded} 個分支；略過 ${result.customersSkipped} 位重複客戶、${result.branchesSkipped} 個重複分支`,
+          'success',
+          7000,
+        );
+        void this.renderCustomerList();
+      } catch (err) {
+        showToast(`客戶匯入失敗：${err instanceof Error ? err.message : String(err)}`, 'error', 7000);
+      }
+    });
+    input.click();
   }
 
   private async persistExpanded(open: boolean): Promise<void> {

@@ -21,6 +21,14 @@ const PRESERVE_PATTERNS: RegExp[] = [
   /\b(?:\d{1,3}\.){3}\d{1,3}\b/g, // IPv4 addresses
 ];
 
+/**
+ * Passwords are intentionally checked separately from the general preserved
+ * tokens: if a model masks one, the result must not be offered for apply at
+ * all. The value alone is captured so normal Markdown emphasis around it does
+ * not produce a false positive.
+ */
+const PASSWORD_VALUE = /(?:^|[\s,，;；])(?:密碼|password|passwd|pwd)\s*(?:[:：=]|為|是)?\s*(?:\*{1,3}|`)?([^\s*`<>,，。;；]+)(?:\*{1,3}|`)?/gim;
+
 function extractTokens(text: string): Set<string> {
   const tokens = new Set<string>();
   for (const pattern of PRESERVE_PATTERNS) {
@@ -32,6 +40,17 @@ function extractTokens(text: string): Set<string> {
     }
   }
   return tokens;
+}
+
+function extractPasswordValues(text: string): Set<string> {
+  const values = new Set<string>();
+  const re = new RegExp(PASSWORD_VALUE.source, PASSWORD_VALUE.flags);
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text))) {
+    const value = match[1];
+    if (value && value.length > 0) values.add(value);
+  }
+  return values;
 }
 
 /**
@@ -70,6 +89,15 @@ export function findForbiddenColorSyntax(original: string, formatted: string): n
   const before = original.match(SPAN_COLOR)?.length ?? 0;
   const after = formatted.match(SPAN_COLOR)?.length ?? 0;
   return Math.max(0, after - before);
+}
+
+/**
+ * Returns password values present in the source but absent from the result.
+ * Callers must not expose these values in a warning or log; they are only a
+ * signal to reject a result that would lose source data.
+ */
+export function findMissingPasswordValues(original: string, formatted: string): string[] {
+  return [...extractPasswordValues(original)].filter((value) => !formatted.includes(value));
 }
 
 /** Returns the (capped) list of original tokens that no longer appear in the formatted output. */

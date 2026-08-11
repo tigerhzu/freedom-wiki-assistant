@@ -7,7 +7,7 @@
  * (turning a failing drift check into a silent auto-fix).
  */
 
-export const SKILL_REFERENCE_PATH = '.claude/skills/wiki-layout-extension/references/color-annotation.md';
+export const SKILL_REFERENCE_PATH = '.claude/skills/wiki-layout-extension/references/color-annotation-revised.md';
 export const BEGIN_MARKER = '<!-- BEGIN GENERATED: layout-rules — 由 npm run gen:layout-rules 產生，請勿手改 -->';
 export const END_MARKER = '<!-- END GENERATED: layout-rules -->';
 
