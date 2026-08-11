@@ -3,6 +3,7 @@ node_modules/
 dist/
 coverage/
 .release/
+Freedom-Wiki-Assistant-v*.zip
 
 ## Environment and credentials (never commit real values)
 .env

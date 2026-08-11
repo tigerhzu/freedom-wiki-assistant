@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Freedom Wiki Assistant",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Markdown Wiki 編輯輔助：文字格式化、圖片上傳、範本與版面整理。",
   "icons": {
     "16": "icons/wiki_logo.png",

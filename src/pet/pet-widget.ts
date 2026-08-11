@@ -93,7 +93,7 @@ export class PetWidget {
   private drag: DragState | null = null;
   private suppressNextClick = false;
 
-  constructor(private readonly petId = 'scoomdroll-fantomu') {}
+  constructor(private readonly petId = 'claude-crab') {}
 
   attach(getItems: () => PetMenuItem[]): void {
     const { root } = createShadowHost('fwa-pet-host');
