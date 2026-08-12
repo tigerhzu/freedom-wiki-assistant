@@ -1,8 +1,7 @@
 # Freedom Wiki Assistant
 
-<p align="center">
-  <img src="src/icons/wiki_logo.png" alt="Freedom Wiki Assistant logo" width="180" />
-</p>
+<img width="512" height="512" alt="wiki_logo_transparent" src="https://github.com/user-attachments/assets/17bc281c-ad50-4ef7-94e0-a79e152de424" />
+
 
 以 TypeScript 開發的 Chromium Manifest V3 瀏覽器擴充功能，為採用 Wiki.js Markdown 編輯器的 Wiki 站點提供格式化、範本、圖片與文章結構輔助。
 
