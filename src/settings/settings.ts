@@ -190,6 +190,15 @@ function bindText(id: keyof Settings & string): void {
   });
 }
 
+function bindEditorMode(): void {
+  const select = $<HTMLSelectElement>('editorMode');
+  select.value = settings.editorMode;
+  select.addEventListener('change', () => {
+    settings.editorMode = select.value as Settings['editorMode'];
+    void persist();
+  });
+}
+
 function bindAzureSettings(): void {
   bindText('azureEndpoint');
   bindText('azureDeployment');
@@ -224,6 +233,7 @@ function bindFolderStrategy(): void {
 async function init(): Promise<void> {
   settings = await getSettings();
 
+  bindEditorMode();
   bindCheckbox('enableFormattingMenu');
   bindCheckbox('enableImageDrop');
   bindCheckbox('enableClipboardImage');

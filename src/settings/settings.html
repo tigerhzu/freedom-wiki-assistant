@@ -157,6 +157,19 @@
     <p id="status"></p>
 
     <fieldset>
+      <legend>Editor Mode</legend>
+      <label class="row">
+        <span class="grow">編輯模式</span>
+        <select id="editorMode">
+          <option value="classic">Classic Markdown</option>
+          <option value="hybrid">Future</option>
+          <option value="raw">Raw Markdown</option>
+        </select>
+      </label>
+      <p class="hint">Classic 保留 Wiki 原生雙欄介面；Future 將右側預覽切成全螢幕視覺編輯器；Raw 在右側顯示完整 Markdown。所有模式共用同一份原生 Markdown。</p>
+    </fieldset>
+
+    <fieldset>
       <legend>功能開關</legend>
       <label class="row"><input type="checkbox" id="enableFormattingMenu" /><span class="grow">啟用文字格式化右鍵選單</span></label>
       <label class="row"><input type="checkbox" id="enableImageDrop" /><span class="grow">啟用圖片拖曳上傳</span></label>

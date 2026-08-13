@@ -67,13 +67,26 @@ export class ImageDropHandler {
   }
 
   private async handleFiles(files: File[]): Promise<void> {
+    const lines = await this.uploadFiles(files);
+    if (lines.length === 0) return;
+
+    this.adapter.insertAtCursor(lines.join('\n') + '\n');
+    this.adapter.focus();
+  }
+
+  /**
+   * Upload image files with the same folder picker, naming and Wiki.js asset
+   * flow used by the native editor. Hybrid mode calls this method and places
+   * the returned Markdown at its own visual caret.
+   */
+  async uploadFiles(files: File[]): Promise<string[]> {
     if (wikiConfig.assets.mode === 'fallback') {
       this.enterFallbackMode();
-      return;
+      return [];
     }
 
     const target = await this.resolveUploadTarget();
-    if (!target) return;
+    if (!target) return [];
 
     let taken: string[] = [...this.uploadedNames];
     try {
@@ -94,10 +107,7 @@ export class ImageDropHandler {
         this.uploadedNames.push(name);
       }
     }
-    if (lines.length === 0) return;
-
-    this.adapter.insertAtCursor(lines.join('\n') + '\n');
-    this.adapter.focus();
+    return lines;
   }
 
   private async uploadOne(target: UploadTarget, file: File, name: string): Promise<string | null> {
@@ -262,7 +272,7 @@ export class ImageDropHandler {
   }
 }
 
-function collectImageFiles(list: FileList | null | undefined): File[] {
+export function collectImageFiles(list: FileList | null | undefined): File[] {
   if (!list) return [];
   const allowed = new Set<string>(wikiConfig.assets.allowedExtensions);
   return Array.from(list).filter((f) => {

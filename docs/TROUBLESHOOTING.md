@@ -1,64 +1,40 @@
 # 疑難排解
 
-## 擴充功能完全沒有反應
+## 擴充功能沒有出現在 Wiki 編輯頁
 
-1. 確認 `manifest.json` 與 `src/config/wiki-config.ts` 的網域已改成
-   公司 Wiki 的真實網域（兩邊必須一致），並重新 build + 重新載入。
-2. 確認目前頁面是「編輯頁」且頁面上偵測得到編輯器。
-   在設定頁開啟 **Debug Mode** 後，DevTools Console 會出現
-   `[FWA] editor detected: <kind>` 之類的生命週期記錄
-   （不會輸出文章內容、Cookie 或 Token）。
-3. `edge://extensions` → 該擴充功能 → 「錯誤」按鈕，檢查是否有例外。
+1. 確認已在 `edge://extensions` 或 `chrome://extensions` 啟用擴充功能。
+2. 若從原始碼建置，確認 `.env` 的 `VITE_WIKI_ORIGIN` 與實際 Wiki 網域相同，然後重新執行 `npm run build`。
+3. 在擴充功能頁面按重新載入，再重新整理 Wiki 編輯頁。
+4. 確認網址為 Wiki.js 編輯頁，例如 `/e/en/...`。
 
-## 右鍵沒有出現格式化選單
+## 看不到 Classic / Future 按鈕
 
-- 選單只在**有反白文字**時出現；沒有選取文字時會保留瀏覽器原生選單（設計如此）。
-- 設定頁確認「啟用文字格式化右鍵選單」有勾選。
-- 若編輯器是 CodeMirror/Monaco/Ace，需要 `page-bridge.js` 成功注入。
-  Console 若出現 `page-bridge.js failed to load`，檢查 manifest 的
-  `web_accessible_resources.matches` 網域是否正確。
+按重新載入擴充功能後，重新整理 Wiki 編輯頁。按鈕會放在 Wiki.js 原生 `SAVE / PAGE / CLOSE` 操作列前方；若網站更新了編輯器版面，請回報目前畫面與網址格式。
 
-## 套用格式後「儲存」按鈕沒有感知到變更
+## Future 中按 Save 沒有保存
 
-編輯器透過框架（Vue/React）綁定時，可能需要額外事件。
-`TextareaAdapter.notifyChange()` 目前送出 `input` + `change`；
-若仍不足，依 DISCOVERY 調查結果調整該方法（例如改用
-`InputEvent` 搭配 `inputType: 'insertText'`）。
+Future 會使用 Wiki.js 原生 `SAVE` 按鈕保存。請確認：
 
-## 圖片拖進去只出現「上傳 API 尚未設定」
+- 仍在編輯頁而不是閱讀頁。
+- 沒有圖片正在上傳。
+- 沒有同時在左側 Markdown 編輯器修改內容；若同時修改，為避免覆寫，Future 會停止同步。
 
-`wiki-config.ts` 的 `assets.uploadApi` 仍是 `null` —
-必須先完成 `docs/DISCOVERY.md` 的上傳 API 調查並填入設定。
-在那之前擴充功能不會呼叫任何未經確認的端點。
-若已設定 `assets.assetsManagerUrl`，會自動開啟原站 Assets 管理頁作為 fallback。
+可以先切回 Classic 確認 Markdown 是否已更新，再按原生 `SAVE`。
 
-## 上傳失敗（HTTP 403 / 419）
+## Future 的 emoji 或圖片大小不正確
 
-多半是 CSRF Token 設定不正確：
+請先更新到最新版擴充功能並重新載入頁面。Future 會把 Wiki.js 顯示用的 Twemoji SVG 還原為 Unicode emoji；若舊內容已儲存成 `/_assets/svg/twemoji/` 圖片，進入 Future 後重新儲存一次即可修復。
 
-- 確認 `uploadApi.csrf.source`（cookie / meta / input）與 `key` 正確。
-- 在 DevTools Network 比對原站上傳時實際送出的 header 名稱與值來源。
+一般圖片可在 Future 中對圖片按右鍵，使用「原始尺寸」或選擇新的尺寸。
 
-## 上傳成功但 Markdown 圖片路徑錯誤
+## 貼上圖片變成很長的 Base64 文字
 
-- 若回應是 JSON：檢查 `uploadApi.responseUrlPath`（dot-path，例如 `data.path`）。
-- 若由「資料夾 + 檔名」組合：檢查 `assets.deriveFolderFromPath` 的推導規則。
-- 中文檔名會自動做 URL encode；若 Wiki 期待原始字元，需調整
-  `sanitize-filename.ts` 的 `encodeAssetPath`。
+確認設定頁的「圖片剪貼簿上傳」已啟用。Future 與 Classic 都會用 Wiki.js Assets 上傳流程處理圖片。若仍出現 Base64，請重新載入擴充功能並確認該圖片格式為 PNG、JPG、JPEG、WEBP 或 GIF。
 
-## 模板變數沒有被替換
+## 圖片上傳失敗
 
-- 變數格式必須是 `{{date}}`（雙大括號、無空白）。
-- `{{current_user}}` 在 `user.resolveCurrentUser` 未設定前一律為空白（設計如此，不猜測）。
-- 未知變數會原樣保留，方便發現拼字錯誤。
+確認目前帳號有 Wiki.js Assets 的建立資料夾與上傳權限。第一次上傳時會依設定建議目前頁面對應的資料夾；你可以改用選擇資料夾按鈕指定目標。
 
-## SPA 切換文章後功能消失
+## Future 的右鍵選單沒有出現
 
-`PageObserver` 會在 URL 或 DOM 變動後自動重新偵測編輯器（約 0.4 秒 debounce）。
-若特定頁面仍失效，開啟 Debug Mode 觀察是否有 `editor detected` 記錄，
-並確認編輯器 selector 是否已加入 `wikiConfig.editor.candidateSelectors`。
-
-## 擴充功能樣式影響到 Wiki 頁面
-
-理論上不會發生：所有 UI 都在 Shadow DOM（`:host { all: initial }`）內。
-若仍有干擾，檢查頁面上 `#fwa-*-host` 元素是否被網站腳本移動或修改。
+文字功能需要先反白文字再按右鍵；圖片功能則直接在圖片上按右鍵。未選取任何內容時，保留瀏覽器原生右鍵選單。
