@@ -75,6 +75,13 @@ export const wikiConfig = {
      */
     saveButtonSelector: null as string | null,
 
+    /** Verified on Wiki.js 2.x edit pages. The first child is the renderer-owned document wrapper. */
+    previewContainerSelector: '.editor-markdown-preview',
+    previewContentSelector: '.editor-markdown-preview-content',
+
+    /** The green check action in the editor header is Wiki.js' native save flow. */
+    saveButtonIconSelector: 'button .mdi-check',
+
     /** 編輯頁 URL 規則：/e/<locale>/<path>（實站確認，例：/e/en/eng/ExtensionTest）。 */
     editPagePattern: /^\/e\//,
   },

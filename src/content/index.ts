@@ -4,6 +4,7 @@ import { seedDefaultTemplatesIfEmpty } from '../templates/template-service';
 import { AiLayoutFeature } from './ai-layout';
 import { createAdapter, detectEditor, type EditorAdapter } from './editor-adapter';
 import { FormattingMenu } from './formatting-menu';
+import { HybridPreviewFeature } from './hybrid-preview';
 import { ImageDropHandler } from './image-drop';
 import { MainNav } from './main-nav';
 import { PageObserver } from './page-observer';
@@ -81,15 +82,21 @@ async function mount(): Promise<void> {
     }
     currentEditorEl = detected.element;
 
+    let imageDrop: ImageDropHandler | null = null;
+    if (settings.enableImageDrop || settings.enableClipboardImage) {
+      imageDrop = new ImageDropHandler(adapter, settings);
+      imageDrop.attach();
+      features.push(imageDrop);
+    }
+
+    const hybridPreview = new HybridPreviewFeature(adapter, settings, imageDrop);
+    hybridPreview.attach();
+    features.push(hybridPreview);
+
     if (settings.enableFormattingMenu) {
       const menu = new FormattingMenu(adapter, settings);
       menu.attach();
       features.push(menu);
-    }
-    if (settings.enableImageDrop || settings.enableClipboardImage) {
-      const drop = new ImageDropHandler(adapter, settings);
-      drop.attach();
-      features.push(drop);
     }
     const panel = new TemplatePanel(adapter);
     features.push(panel);

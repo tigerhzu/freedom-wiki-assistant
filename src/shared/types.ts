@@ -8,6 +8,8 @@ export type EditorKind =
   | 'monaco'
   | 'ace';
 
+export type EditorMode = 'classic' | 'hybrid' | 'raw';
+
 export interface SelectionInfo {
   text: string;
   start: number;
@@ -64,6 +66,8 @@ export interface CustomerBranch {
 export type CustomerBranchMap = Record<string, CustomerBranch[]>;
 
 export interface Settings {
+  /** Wiki editor presentation. Markdown in the native editor remains the source of truth in every mode. */
+  editorMode: EditorMode;
   enableFormattingMenu: boolean;
   enableImageDrop: boolean;
   enableClipboardImage: boolean;
@@ -118,6 +122,7 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
+  editorMode: 'classic',
   enableFormattingMenu: true,
   enableImageDrop: true,
   enableClipboardImage: true,
