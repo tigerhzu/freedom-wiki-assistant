@@ -1,10 +1,14 @@
 # Freedom Wiki Assistant
 
+<p align="center">
+  <img width="256" height="256" alt="Freedom Wiki Assistant logo" src="src/icons/wiki_logo_512.png" />
+</p>
+
 Freedom Wiki Assistant 是給 Wiki.js Markdown 編輯頁使用的 Chromium 擴充功能。它保留 Wiki.js 原生 Markdown 為唯一資料來源，並提供更方便的文字、圖片、版型與 Future 視覺化編輯功能。
 
 ## 下載與安裝
 
-最簡單的方式是從 GitHub 的 **Releases** 下載 `Freedom-Wiki-Assistant-v0.2.0.zip`：
+最簡單的方式是從 GitHub 的 **Releases** 下載最新的 `Freedom-Wiki-Assistant-v*.zip`：
 
 1. 解壓縮下載的 ZIP 檔。
 2. 在 Edge 開啟 `edge://extensions`，或在 Chrome 開啟 `chrome://extensions`。
