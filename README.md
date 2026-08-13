@@ -1,7 +1,7 @@
 # Freedom Wiki Assistant
 
 <p align="center">
-  <img width="256" height="256" alt="Freedom Wiki Assistant logo" src="src/icons/wiki_logo_512.png" />
+  <img width="160" height="160" alt="Freedom Wiki Assistant logo" src="src/icons/wiki_logo_512.png" />
 </p>
 
 Freedom Wiki Assistant 是給 Wiki.js Markdown 編輯頁使用的 Chromium 擴充功能。它保留 Wiki.js 原生 Markdown 為唯一資料來源，並提供更方便的文字、圖片、版型與 Future 視覺化編輯功能。
