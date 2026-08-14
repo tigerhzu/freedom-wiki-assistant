@@ -4,7 +4,12 @@ import { getSettings, saveSettings } from '../shared/storage';
 import type { EditorMode, Settings } from '../shared/types';
 import type { EditorAdapter } from './editor-adapter';
 import { parseHybridBlocks, type HybridMarkdownBlock } from './hybrid-blocks';
-import { canVisuallyEdit, serializeNewVisualBlock, serializeVisualBlock } from './hybrid-serialize';
+import {
+  canSerializeVisualBlock,
+  canVisuallyEdit,
+  serializeNewVisualBlock,
+  serializeVisualBlock,
+} from './hybrid-serialize';
 import { collectImageFiles, type ImageDropHandler } from './image-drop';
 import { parseMarkdownImage } from './markdown-image';
 import { minimalDiff } from './markdown-format';
@@ -305,6 +310,12 @@ export class HybridPreviewFeature {
 
   private markSourceElement(element: HTMLElement, block: HybridMarkdownBlock, index: number): void {
     element.setAttribute(SOURCE_INDEX_ATTR, String(index));
+    if (block.type === 'image') {
+      const image = element.tagName === 'IMG'
+        ? element as HTMLImageElement
+        : element.querySelector<HTMLImageElement>('img');
+      image?.setAttribute(EXACT_SOURCE_ATTR, block.rawMarkdown);
+    }
     if (!canVisuallyEdit(block)) {
       element.contentEditable = 'false';
       element.title = block.type === 'image'
@@ -336,7 +347,7 @@ export class HybridPreviewFeature {
       next = current;
       for (let index = children.length - 1; index >= 0; index--) {
         const block = this.visualBlocks[index];
-        if (!canVisuallyEdit(block)) continue;
+        if (!canSerializeVisualBlock(block)) continue;
         const replacement = serializeVisualBlock(block, children[index]);
         if (replacement === null) return this.serializationFailed();
         next = next.slice(0, block.startOffset) + replacement + next.slice(block.endOffset);
@@ -347,7 +358,7 @@ export class HybridPreviewFeature {
         const sourceIndex = sourceIndexOf(element);
         const block = sourceIndex === null ? undefined : this.visualBlocks[sourceIndex];
         const value = block
-          ? (canVisuallyEdit(block) ? serializeVisualBlock(block, element) : block.rawMarkdown)
+          ? (canSerializeVisualBlock(block) ? serializeVisualBlock(block, element) : block.rawMarkdown)
           : serializeNewVisualBlock(element);
         if (value === null) return this.serializationFailed();
         if (value.trim() !== '') serialized.push(value);

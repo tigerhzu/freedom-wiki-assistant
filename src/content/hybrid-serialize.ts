@@ -179,6 +179,11 @@ export function canVisuallyEdit(block: HybridMarkdownBlock): boolean {
   return ['heading', 'paragraph', 'list', 'table', 'blockquote', 'code-fence', 'link', 'mixed'].includes(block.type);
 }
 
+/** Blocks whose rendered DOM can be written back without exposing them to text editing. */
+export function canSerializeVisualBlock(block: HybridMarkdownBlock): boolean {
+  return canVisuallyEdit(block) || block.type === 'image';
+}
+
 /** Serialize only the currently edited, supported block back to Markdown. */
 export function serializeVisualBlock(block: HybridMarkdownBlock, element: HTMLElement): string | null {
   let markdown: string | null;
@@ -192,6 +197,11 @@ export function serializeVisualBlock(block: HybridMarkdownBlock, element: HTMLEl
     case 'link':
     case 'mixed':
       markdown = cleanInline(serializeNodes(element.childNodes));
+      break;
+    case 'image':
+      markdown = cleanInline(
+        element.tagName === 'IMG' ? serializeNode(element) : serializeNodes(element.childNodes),
+      );
       break;
     case 'list':
       markdown = serializeList(element, block.rawMarkdown);
