@@ -1,6 +1,15 @@
 # Future 模式指南
 
-Future 是 Freedom Wiki Assistant 的視覺化編輯模式。它讓你直接在 Wiki 頁面外觀上輸入與調整內容，同時把結果同步為 Wiki.js 可保存的 Markdown。
+Future 是 Freedom Wiki Assistant 的視覺化編輯模式。它讓你直接在 Wiki 頁面外觀上輸入與調整內容，同時把結果同步為 Wiki.js 可保存的 Markdown。你不需要手動撰寫 Markdown；Future 會在儲存時處理轉換。
+
+## 30 秒開始使用
+
+1. 開啟 Wiki.js 的**編輯頁**。
+2. 在原生 `SAVE / PAGE / CLOSE` 操作列左側按 `Future`。
+3. 像平常編輯網頁一樣直接點選文字、輸入內容，或在圖片上按右鍵調整樣式。
+4. 按原生 `SAVE` 儲存。Future 會先同步修改至 Markdown。
+
+如果沒有看到 `Classic` 與 `Future`，請到 Edge 或 Chrome 的擴充功能頁重新載入擴充功能，再重新整理 Wiki 編輯頁。
 
 ## 進入與離開
 
