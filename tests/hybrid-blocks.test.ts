@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseHybridBlocks } from '../src/content/hybrid-blocks';
+import { canSerializeVisualBlock, canVisuallyEdit } from '../src/content/hybrid-serialize';
 
 describe('parseHybridBlocks', () => {
   it('keeps exact source ranges for phase-one block types', () => {
@@ -56,5 +57,13 @@ describe('parseHybridBlocks', () => {
   it('classifies standalone links and unknown wiki directives conservatively', () => {
     const source = '[Google](https://google.com)\n\n{{ wiki.special }}';
     expect(parseHybridBlocks(source).map((block) => block.type)).toEqual(['link', 'raw']);
+  });
+
+  it('serializes image changes without making image blocks text-editable', () => {
+    const [image] = parseHybridBlocks('![Network diagram](./images/network.png)');
+
+    expect(image.type).toBe('image');
+    expect(canVisuallyEdit(image)).toBe(false);
+    expect(canSerializeVisualBlock(image)).toBe(true);
   });
 });
