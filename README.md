@@ -18,9 +18,19 @@ Freedom Wiki Assistant 是給 Wiki.js Markdown 編輯頁使用的 Chromium 擴�
 
 如果你下載的是原始碼 ZIP，請依照 [安裝與建置說明](docs/INSTALL.md) 建置後再載入 `dist/`。
 
+## 給朋友的快速開始
+
+1. 下載並解壓縮最新版 Release。
+2. 在 `edge://extensions` 或 `chrome://extensions` 開啟「開發人員模式」，按「載入解壓縮檔」，選取解壓縮後含有 `manifest.json` 的資料夾。
+3. 開啟 Wiki.js 的任一**編輯頁**，在原生 `SAVE / PAGE / CLOSE` 左側按 `Future`。
+4. 直接在頁面上點選、輸入或貼上內容；不需要手動寫 Markdown。
+5. 完成後按 Wiki.js 原生 `SAVE`。Future 會先把視覺修改轉成 Markdown，再交給 Wiki.js 儲存。
+
+首次安裝後若看不到按鈕，回到擴充功能頁按重新載入，再重新整理 Wiki 編輯頁即可。
+
 ## Future 視覺化編輯模式
 
-Future 是全螢幕的視覺化編輯模式，讓使用者像直接修改 Wiki 頁面一樣編輯內容；背景會在儲存時自動產生並更新 Markdown。
+Future 是全螢幕的視覺化編輯模式，讓使用者像直接修改 Wiki 頁面一樣編輯內容；背景會在儲存時自動產生並更新 Markdown。它不是另一個預覽面板：你可以直接在右側頁面內容上修改，不必了解 Markdown 語法。
 
 - 在 Wiki.js 原生 `SAVE / PAGE / CLOSE` 操作列旁，使用 `Classic` 與 `Future` 切換模式。
 - `Classic` 保留原生雙欄 Markdown 介面。
