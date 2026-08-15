@@ -64,9 +64,25 @@ html.fwa-hybrid-page-open body { overflow: hidden !important; }
   padding: 0 !important;
 }
 
+/* Keep the Future page shell stable while Wiki.js asynchronously replaces
+   the rendered Markdown root after a source edit.  The visual editor adds
+   the same layout classes once the new root is ready; these temporary shell
+   rules prevent the page from flashing full-width/left-aligned in between. */
+.fwa-hybrid-fullscreen > .editor-markdown-preview-content.fwa-future-shell > :first-child {
+  box-sizing: border-box;
+  margin: 0 auto;
+  min-height: calc(100vh - var(--fwa-future-top, 50px));
+  padding: 28px clamp(24px, 7vw, 110px) 80px;
+  width: min(100%, 1500px);
+}
+
+.fwa-visual-document {
+  cursor: text;
+  outline: none;
+}
+
 .fwa-hybrid-document {
   box-sizing: border-box;
-  cursor: text;
   margin: 0 auto;
   min-height: calc(100vh - var(--fwa-future-top, 50px));
   outline: none;
@@ -74,8 +90,8 @@ html.fwa-hybrid-page-open body { overflow: hidden !important; }
   width: min(100%, 1500px);
 }
 
-.fwa-hybrid-document:focus { outline: none; }
-.fwa-hybrid-document [contenteditable="false"] { cursor: default; }
+.fwa-visual-document:focus { outline: none; }
+.fwa-visual-document [contenteditable="false"] { cursor: default; }
 .fwa-hybrid-document img {
   max-height: min(75vh, 900px);
   max-width: min(100%, 1100px);
@@ -85,7 +101,7 @@ html.fwa-hybrid-page-open body { overflow: hidden !important; }
 /* Wiki.js renders emoji as SVG image assets. Outside its original preview
    container those rules no longer apply, so keep them at inline-icon size. */
 .editor-markdown-preview-content img[src*="/_assets/svg/twemoji/"],
-.fwa-hybrid-document img[src*="/_assets/svg/twemoji/"] {
+.fwa-visual-document img[src*="/_assets/svg/twemoji/"] {
   display: inline-block !important;
   height: 1.25em !important;
   margin: 0 0.08em !important;

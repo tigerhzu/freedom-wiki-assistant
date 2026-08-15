@@ -28,7 +28,7 @@ export interface AiLayoutResult {
   formatted_content: string;
   changes: string[];
   warnings: string[];
-  /** Present for AI runs; absent for local 快速排版 (no API call was made). */
+  /** Token usage reported by the configured AI provider when available. */
   usage?: AiLayoutUsage;
 }
 

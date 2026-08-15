@@ -141,9 +141,12 @@ export function showFolderConfirmToast(folderPath: string, ms = 3000): Promise<'
 
 export interface ModalHandle {
   close(): void;
+  onClose(callback: () => void): void;
   body: HTMLElement;
   footer: HTMLElement;
   element: HTMLElement;
+  /** The backdrop layer. Overlay UI that belongs to this modal can be mounted here. */
+  layer: HTMLElement;
 }
 
 export function openModal(
@@ -163,10 +166,16 @@ export function openModal(
     footer,
   ]);
   const backdrop = el('div', { class: 'fwa-modal-backdrop' }, [modal]);
+  let closed = false;
+  const closeCallbacks = new Set<() => void>();
 
   const close = () => {
+    if (closed) return;
+    closed = true;
     backdrop.remove();
     document.removeEventListener('keydown', onKey, true);
+    for (const callback of closeCallbacks) callback();
+    closeCallbacks.clear();
   };
   const onKey = (e: KeyboardEvent) => {
     if (dismissible && e.key === 'Escape') {
@@ -180,5 +189,15 @@ export function openModal(
   document.addEventListener('keydown', onKey, true);
 
   root.appendChild(backdrop);
-  return { close, body, footer, element: modal };
+  return {
+    close,
+    onClose(callback) {
+      if (closed) callback();
+      else closeCallbacks.add(callback);
+    },
+    body,
+    footer,
+    element: modal,
+    layer: backdrop,
+  };
 }

@@ -5,273 +5,473 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Freedom Wiki Assistant 設定</title>
     <style>
-      body {
+      :root {
+        color-scheme: light;
         font-family: "Segoe UI", "Microsoft JhengHei", system-ui, sans-serif;
-        max-width: 640px;
-        margin: 24px auto;
-        padding: 0 16px;
-        color: #1f2328;
+        color: #1f2937;
+        background: #f4f6fb;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        min-width: 320px;
+        min-height: 100vh;
+        margin: 0;
+        padding: 40px 20px 64px;
+        background:
+          radial-gradient(circle at 15% 8%, rgba(221, 229, 255, 0.7), transparent 32%),
+          radial-gradient(circle at 92% 18%, rgba(232, 225, 255, 0.65), transparent 30%),
+          #f4f6fb;
         font-size: 14px;
       }
-      h1 { font-size: 20px; }
-      fieldset {
-        border: 1px solid #d0d7de;
-        border-radius: 8px;
-        margin-bottom: 16px;
-        padding: 12px 16px;
-      }
-      legend { font-weight: 600; padding: 0 6px; }
-      label.row {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        margin: 8px 0;
-      }
-      label.row span.grow { flex: 1; }
-      input[type="text"] {
-        padding: 5px 8px;
-        border: 1px solid #d0d7de;
-        border-radius: 4px;
-        width: 260px;
-      }
-      button {
-        border: 1px solid #d0d7de;
-        background: #f6f8fa;
-        border-radius: 6px;
-        padding: 6px 12px;
-        cursor: pointer;
-        margin-right: 6px;
-      }
-      button:hover { background: #eaeef2; }
-      .hint { color: #656d76; font-size: 12px; margin: 4px 0; }
-      #swatch-list { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
-      .swatch {
-        width: 24px; height: 24px; border-radius: 50%;
-        border: 1px solid #d0d7de; cursor: pointer;
-      }
-      .sidebar-color-layout {
+
+      .settings-shell {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) 180px;
-        gap: 18px;
+        width: min(820px, 100%);
+        margin: 0 auto;
+        gap: 22px;
+      }
+
+      .settings-card {
+        min-width: 0;
+        margin: 0;
+        padding: 26px 26px 28px;
+        background: rgba(255, 255, 255, 0.96);
+        border: 1px solid rgba(209, 217, 235, 0.86);
+        border-radius: 16px;
+        box-shadow: 0 12px 30px rgba(67, 81, 120, 0.08);
+      }
+
+      .settings-card-title {
+        display: flex;
+        width: auto;
+        max-width: 100%;
+        margin-bottom: 22px;
+        padding: 0;
+        align-items: baseline;
+        gap: 8px;
+        color: #172033;
+        font-size: 17px;
+        font-weight: 700;
+      }
+
+      .settings-card-title .english {
+        color: #7a8498;
+        font-size: 12px;
+        font-weight: 500;
+      }
+
+      .section-kicker {
+        margin-bottom: 9px;
+        color: #263247;
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .hint,
+      .section-help {
+        margin: 5px 0 0;
+        color: #7a8498;
+        font-size: 12px;
+        line-height: 1.6;
+      }
+
+      #status {
+        min-height: 0;
+        margin: -12px 0 -4px;
+        color: #16803c;
+        font-size: 13px;
+        text-align: center;
+      }
+
+      button,
+      input,
+      select {
+        font: inherit;
+      }
+
+      button {
+        min-height: 40px;
+        padding: 8px 14px;
+        color: #344054;
+        background: #ffffff;
+        border: 1px solid #cbd5e5;
+        border-radius: 10px;
+        cursor: pointer;
+        transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+      }
+
+      button:hover {
+        background: #f8faff;
+        border-color: #9eb2d5;
+      }
+
+      button:focus-visible,
+      input:focus-visible,
+      select:focus-visible {
+        outline: 3px solid rgba(66, 133, 244, 0.2);
+        outline-offset: 1px;
+      }
+
+      input[type="text"],
+      input[type="password"],
+      select {
+        width: 100%;
+        min-height: 40px;
+        padding: 8px 11px;
+        color: #1f2937;
+        background: #ffffff;
+        border: 1px solid #cbd5e5;
+        border-radius: 10px;
+      }
+
+      .appearance-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 24px;
         align-items: start;
       }
+
+      .appearance-controls { min-width: 0; }
+
       #sidebar-color-presets {
         display: flex;
         flex-wrap: wrap;
-        gap: 10px;
-        margin: 10px 0 14px;
+        gap: 11px;
+        margin: 15px 0 20px;
       }
+
       .sidebar-color-swatch {
         width: 30px;
         height: 30px;
+        min-height: 30px;
+        padding: 0;
+        background: linear-gradient(145deg, var(--sw) 0%, var(--sw-end, var(--sw)) 100%);
         border: 2px solid transparent;
         border-radius: 50%;
-        background: linear-gradient(145deg, var(--sw) 0%, var(--sw-end, var(--sw)) 100%);
         cursor: pointer;
-        padding: 0;
-        transition: transform 0.12s ease, box-shadow 0.12s ease;
+        transition: transform 120ms ease, box-shadow 120ms ease;
       }
+
       .sidebar-color-swatch:hover { transform: translateY(-2px) scale(1.06); }
+
       .sidebar-color-swatch.active {
-        box-shadow: 0 0 0 3px #fff, 0 0 0 5px var(--sw);
+        box-shadow: 0 0 0 3px #ffffff, 0 0 0 5px var(--sw);
       }
-      .sidebar-color-controls {
-        display: flex;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 8px;
-      }
+
       .sidebar-color-field {
         display: grid;
-        grid-template-columns: 52px 1fr;
+        grid-template-columns: 54px minmax(0, 1fr);
+        gap: 10px;
+        margin: 11px 0;
         align-items: center;
-        gap: 8px;
-        margin: 7px 0;
-        color: #57606a;
+        color: #647087;
         font-size: 12px;
       }
+
+      .sidebar-color-controls {
+        display: flex;
+        min-width: 0;
+        gap: 8px;
+        align-items: center;
+      }
+
       .sidebar-color-controls input[type="color"] {
         width: 42px;
-        height: 34px;
-        padding: 2px;
-        border: 1px solid #d0d7de;
-        border-radius: 6px;
-        background: #fff;
+        height: 40px;
+        flex: none;
+        padding: 3px;
+        background: #ffffff;
+        border: 1px solid #cbd5e5;
+        border-radius: 10px;
         cursor: pointer;
       }
-      .sidebar-color-controls input[type="text"] { width: 104px; }
+
+      .sidebar-color-controls input[type="text"] { min-width: 0; }
+
+      #resetSidebarColor {
+        margin-top: 8px;
+        color: #526078;
+        font-size: 12px;
+      }
+
+      .preview-label {
+        margin-bottom: 9px;
+        color: #263247;
+        font-size: 14px;
+        font-weight: 700;
+      }
+
       .sidebar-preview {
         overflow: hidden;
-        min-height: 220px;
-        border: 1px solid #d0d7de;
-        border-radius: 12px;
-        color: var(--preview-text, #fff);
+        min-height: 196px;
+        color: var(--preview-text, #ffffff);
         background-color: #1976d2;
-        background-image:
-          var(--preview-gradient, linear-gradient(155deg, #1976d2 0%, #1561ac 100%));
-        box-shadow: 0 10px 24px rgba(31, 35, 40, 0.12);
+        background-image: var(--preview-gradient, linear-gradient(155deg, #1976d2 0%, #1561ac 100%));
+        border: 1px solid rgba(255, 255, 255, 0.7);
+        border-radius: 16px;
+        box-shadow: 0 14px 26px rgba(50, 65, 110, 0.2);
       }
+
       .sidebar-preview-head {
         display: flex;
         gap: 8px;
         padding: 12px;
         background-color: #1565c0;
-        background-image:
-          var(--preview-header-gradient, linear-gradient(115deg, #1565c0 0%, #125394 100%));
+        background-image: var(--preview-header-gradient, linear-gradient(115deg, #1565c0 0%, #125394 100%));
       }
-      .sidebar-preview-head span {
+
+      .sidebar-preview button {
+        min-height: 0;
+        margin: 0;
+        padding: 8px 9px;
+        color: inherit;
+        border: 1px solid transparent;
+        cursor: pointer;
+        transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease, filter 140ms ease, transform 140ms ease;
+      }
+
+      .sidebar-preview button:hover {
+        filter: brightness(1.08);
+        border-color: rgba(255, 255, 255, 0.28);
+        box-shadow: 0 4px 12px rgba(31, 35, 40, 0.18);
+        transform: translateY(-1px);
+      }
+
+      .sidebar-preview button:active { transform: translateY(0) scale(0.98); }
+
+      .sidebar-preview button:focus-visible {
+        outline: 2px solid rgba(255, 255, 255, 0.95);
+        outline-offset: 2px;
+      }
+
+      .sidebar-preview-head button {
         flex: 1;
-        padding: 7px 8px;
-        border-radius: 5px;
         background: var(--preview-button, #1976d2);
-        font-weight: 600;
+        border-radius: 7px;
+        font-weight: 700;
       }
-      .sidebar-preview-head span:first-child { flex: 0 0 24px; text-align: center; }
-      .sidebar-preview-items { padding: 10px 8px; }
+
+      .sidebar-preview-head button:first-child {
+        flex: 0 0 32px;
+        text-align: center;
+      }
+
+      .sidebar-preview-items {
+        display: grid;
+        gap: 3px;
+        padding: 11px 9px;
+      }
+
       .sidebar-preview-item {
         display: flex;
+        width: 100%;
+        min-height: 0;
+        padding: 9px 10px;
         align-items: center;
         gap: 10px;
-        padding: 8px 10px;
-        border-radius: 6px;
+        color: inherit;
+        background: transparent;
+        border-radius: 8px;
+        text-align: left;
         font-size: 12px;
         font-weight: 600;
       }
-      .sidebar-preview-item.active { background: rgba(255, 255, 255, 0.16); }
+
+      .sidebar-preview-item:hover {
+        background: rgba(255, 255, 255, 0.26);
+        transform: translateX(3px);
+      }
+
+      .sidebar-preview-item:active { transform: translateX(3px) scale(0.985); }
+
+      .sidebar-preview-item.active {
+        background: rgba(255, 255, 255, 0.17);
+      }
+
+      .sidebar-preview-item span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
       .sidebar-preview-icon {
         width: 14px;
         height: 14px;
+        flex: none;
         border: 2px solid currentColor;
         border-radius: 4px;
         opacity: 0.9;
       }
-      @media (max-width: 620px) {
-        .sidebar-color-layout { grid-template-columns: 1fr; }
-        .sidebar-preview { max-width: 240px; }
+
+      /* Keep the preview controls visual-only: they demonstrate hover states
+         without navigating away from the settings page. */
+      .sidebar-preview button {
+        -webkit-tap-highlight-color: transparent;
       }
-      #status { color: #1a7f37; font-size: 13px; min-height: 18px; }
+
+      .option-list {
+        display: grid;
+        gap: 9px;
+        margin-top: 14px;
+      }
+
+      .option-row {
+        display: flex;
+        min-height: 42px;
+        padding: 9px 12px;
+        align-items: center;
+        gap: 10px;
+        color: #344054;
+        background: #f8faff;
+        border: 1px solid #e3e9f3;
+        border-radius: 10px;
+      }
+
+      .option-row:has(input:checked) {
+        color: #1f5fbe;
+        background: #eef5ff;
+        border-color: #9dc2f5;
+      }
+
+      .option-row input { accent-color: #2f7be5; }
+
+      .form-grid {
+        display: grid;
+        gap: 14px;
+        margin-top: 16px;
+      }
+
+      .form-row {
+        display: grid;
+        grid-template-columns: minmax(190px, 0.9fr) minmax(0, 1.2fr);
+        gap: 18px;
+        align-items: center;
+        color: #4c5870;
+      }
+
+      .form-row > span:first-child { line-height: 1.45; }
+
+      .api-key-controls {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 8px;
+      }
+
+      .api-key-controls button { min-width: 62px; }
+
+      .backup-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 9px;
+        margin-top: 4px;
+      }
+
+      .backup-actions button { flex: 1 1 190px; }
+
+      .backup-actions button:first-child {
+        color: #ffffff;
+        background: #2f7be5;
+        border-color: #2f7be5;
+      }
+
+      .backup-actions button:first-child:hover { background: #246ac9; }
+
+      @media (max-width: 700px) {
+        body { padding: 24px 12px 40px; }
+        .settings-card { padding: 20px 18px 22px; border-radius: 15px; }
+        .appearance-grid { grid-template-columns: 1fr; gap: 22px; }
+        .sidebar-preview { min-height: 174px; }
+        .form-row { grid-template-columns: 1fr; gap: 7px; }
+      }
+
+      @media (max-width: 430px) {
+        .sidebar-color-field { grid-template-columns: 1fr; gap: 6px; }
+        .sidebar-color-controls input[type="text"] { flex: 1; }
+        .api-key-controls { grid-template-columns: 1fr; }
+        .api-key-controls button { width: 100%; }
+      }
     </style>
   </head>
   <body>
-    <h1>Freedom Wiki Assistant 設定</h1>
-    <p id="status"></p>
+    <main class="settings-shell">
+      <p id="status" role="status" aria-live="polite"></p>
 
-    <fieldset>
-      <legend>Editor Mode</legend>
-      <label class="row">
-        <span class="grow">編輯模式</span>
-        <select id="editorMode">
-          <option value="classic">Classic Markdown</option>
-          <option value="hybrid">Future</option>
-          <option value="raw">Raw Markdown</option>
-        </select>
-      </label>
-      <p class="hint">Classic 保留 Wiki 原生雙欄介面；Future 將右側預覽切成全螢幕視覺編輯器；Raw 在右側顯示完整 Markdown。所有模式共用同一份原生 Markdown。</p>
-    </fieldset>
-
-    <fieldset>
-      <legend>功能開關</legend>
-      <label class="row"><input type="checkbox" id="enableFormattingMenu" /><span class="grow">啟用文字格式化右鍵選單</span></label>
-      <label class="row"><input type="checkbox" id="enableImageDrop" /><span class="grow">啟用圖片拖曳上傳</span></label>
-      <label class="row"><input type="checkbox" id="enableClipboardImage" /><span class="grow">啟用剪貼簿圖片貼上（Ctrl+V）</span></label>
-      <label class="row"><input type="checkbox" id="debugMode" /><span class="grow">Debug Mode（僅輸出功能生命週期記錄，不輸出文章內容或 Token）</span></label>
-    </fieldset>
-
-    <fieldset>
-      <legend>外觀</legend>
-      <div class="sidebar-color-layout">
-        <div>
-          <strong>左側導覽列顏色</strong>
-          <p class="hint">選取後會自動儲存，已開啟的 Wiki 頁面不需重新整理。</p>
-          <div id="sidebar-color-presets" aria-label="常用顏色"></div>
-          <label class="sidebar-color-field">
-            <span>主色</span>
-            <span class="sidebar-color-controls">
-              <input type="color" id="sidebarColorPicker" aria-label="選擇左側導覽列主色" />
-              <input type="text" id="sidebarColor" placeholder="#1976d2" aria-label="左側導覽列主色 HEX" />
-            </span>
-          </label>
-          <label class="sidebar-color-field">
-            <span>漸層色</span>
-            <span class="sidebar-color-controls">
-              <input type="color" id="sidebarGradientColorPicker" aria-label="選擇左側導覽列漸層色" />
-              <input type="text" id="sidebarGradientColor" placeholder="#1561ac" aria-label="左側導覽列漸層色 HEX" />
-            </span>
-          </label>
-          <button id="resetSidebarColor" type="button">恢復 Wiki 原始顏色</button>
-          <p class="hint">支援 #RGB 或 #RRGGBB；文字會依整段漸層自動切換。</p>
-        </div>
-        <div id="sidebarPreview" class="sidebar-preview" aria-label="左側導覽列顏色預覽">
-          <div class="sidebar-preview-head"><span>⌂</span><span>Browse</span></div>
-          <div class="sidebar-preview-items">
-            <div class="sidebar-preview-item active"><i class="sidebar-preview-icon"></i>Home</div>
-            <div class="sidebar-preview-item"><i class="sidebar-preview-icon"></i>Engineering</div>
-            <div class="sidebar-preview-item"><i class="sidebar-preview-icon"></i>Customers</div>
+      <section class="settings-card">
+        <div class="settings-card-title">外觀 <span class="english">Appearance</span></div>
+        <div class="appearance-grid">
+          <div class="appearance-controls">
+            <div class="section-kicker">Accent Color</div>
+            <p class="section-help">選擇左側導覽列顏色，變更會即時套用。</p>
+            <div id="sidebar-color-presets" aria-label="常用顏色"></div>
+            <label class="sidebar-color-field">
+              <span>主色</span>
+              <span class="sidebar-color-controls">
+                <input type="color" id="sidebarColorPicker" aria-label="選擇左側導覽列主色" />
+                <input type="text" id="sidebarColor" placeholder="#1976d2" aria-label="左側導覽列主色 HEX" />
+              </span>
+            </label>
+            <label class="sidebar-color-field">
+              <span>漸層色</span>
+              <span class="sidebar-color-controls">
+                <input type="color" id="sidebarGradientColorPicker" aria-label="選擇左側導覽列漸層色" />
+                <input type="text" id="sidebarGradientColor" placeholder="#1561ac" aria-label="左側導覽列漸層色 HEX" />
+              </span>
+            </label>
+            <button id="resetSidebarColor" type="button">恢復 Wiki 原始顏色</button>
+          </div>
+          <div>
+            <div class="preview-label">即時預覽 <span class="english">Preview</span></div>
+            <div id="sidebarPreview" class="sidebar-preview" aria-label="左側導覽列顏色預覽">
+              <div class="sidebar-preview-head">
+                <button type="button" aria-label="預覽首頁">⌂</button>
+                <button type="button">Browse</button>
+              </div>
+              <div class="sidebar-preview-items">
+                <button type="button" class="sidebar-preview-item active"><i class="sidebar-preview-icon"></i><span>Home</span></button>
+                <button type="button" class="sidebar-preview-item"><i class="sidebar-preview-icon"></i><span>Engineering</span></button>
+                <button type="button" class="sidebar-preview-item"><i class="sidebar-preview-icon"></i><span>Customers</span></button>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
-    </fieldset>
+      </section>
 
-    <fieldset>
-      <legend>圖片</legend>
-      <label class="row"><span class="grow">上傳資料夾判斷方式</span></label>
-      <label class="row"><input type="radio" name="folderStrategy" value="currentPath" id="folderStrategyCurrentPath" /><span class="grow">自動使用目前文章路徑（預設）</span></label>
-      <label class="row"><input type="radio" name="folderStrategy" value="parentFolder" id="folderStrategyParentFolder" /><span class="grow">使用目前文章的父資料夾</span></label>
-      <label class="row"><input type="radio" name="folderStrategy" value="manual" id="folderStrategyManual" /><span class="grow">每次手動選擇</span></label>
-      <p class="hint">自動判斷時，上傳前會短暫顯示目的地資料夾，可按「變更資料夾」改用手動選擇。</p>
-      <label class="row"><span class="grow">找不到目前文章路徑時的預設資料夾</span><input type="text" id="defaultImageFolder" placeholder="/docs/clients/example-client" /></label>
-      <label class="row"><span class="grow">圖片 Markdown 格式</span><input type="text" id="imageMarkdownFormat" /></label>
-      <p class="hint">可用變數：{name} 檔名、{url} 圖片路徑。預設：![{name}]({url})</p>
-    </fieldset>
+      <section class="settings-card">
+        <div class="settings-card-title">圖片 <span class="english">Images</span></div>
+        <div class="section-kicker">上傳資料夾判斷方式</div>
+        <div class="option-list">
+          <label class="option-row"><input type="radio" name="folderStrategy" value="currentPath" id="folderStrategyCurrentPath" /><span>自動使用目前文章路徑（預設）</span></label>
+          <label class="option-row"><input type="radio" name="folderStrategy" value="parentFolder" id="folderStrategyParentFolder" /><span>使用目前文章的父資料夾</span></label>
+          <label class="option-row"><input type="radio" name="folderStrategy" value="manual" id="folderStrategyManual" /><span>每次手動選擇</span></label>
+        </div>
+        <div class="form-grid">
+          <label class="form-row"><span>找不到目前文章路徑時的預設資料夾</span><input type="text" id="defaultImageFolder" placeholder="/docs/clients/example-client" /></label>
+          <label class="form-row"><span>圖片 Markdown 格式</span><input type="text" id="imageMarkdownFormat" /></label>
+        </div>
+      </section>
 
-    <fieldset>
-      <legend>文字格式</legend>
-      <label class="row"><span class="grow">預設文字顏色</span><input type="text" id="defaultTextColor" placeholder="red 或 #ff0000" /></label>
-      <div>
-        <span>自訂常用色票</span>
-        <div id="swatch-list"></div>
-        <label class="row">
-          <input type="text" id="newSwatch" placeholder="#a1b2c3" style="width: 120px" />
-          <button id="addSwatch" type="button">新增色票</button>
-        </label>
-        <p class="hint">點一下色票可移除。</p>
-      </div>
-    </fieldset>
+      <section class="settings-card">
+        <div class="settings-card-title">AI 排版 <span class="english">Azure OpenAI</span></div>
+        <div class="form-grid">
+          <label class="form-row"><span>Azure Endpoint</span><input type="text" id="azureEndpoint" placeholder="https://your-resource.openai.azure.com" autocomplete="off" spellcheck="false" /></label>
+          <label class="form-row"><span>Azure Deployment Name</span><input type="text" id="azureDeployment" placeholder="例如：gpt-4.1 或自訂部署名稱" autocomplete="off" spellcheck="false" /></label>
+          <label class="form-row"><span>Azure API Version</span><input type="text" id="azureApiVersion" placeholder="2024-12-01-preview" autocomplete="off" spellcheck="false" /></label>
+          <label class="form-row"><span>Azure OpenAI API Key</span><span class="api-key-controls"><input type="password" id="azureApiKey" placeholder="貼上 Azure OpenAI API Key" autocomplete="off" spellcheck="false" /><button id="toggleAzureApiKey" type="button">顯示</button></span></label>
+        </div>
+      </section>
 
-    <fieldset>
-      <legend>AI 排版（Azure OpenAI）</legend>
-      <p class="hint">
-        沿用 HaloPSA 擴充套件的 Azure OpenAI 設定格式；Endpoint／Deployment／API Key 只儲存在本機瀏覽器
-        （chrome.storage.local），不會寫死在程式碼或打包進擴充套件中。AI 排版只會整理目前頁面的
-        Markdown／HTML，並在你確認 Diff 後才寫入編輯器，不會自動儲存到 Wiki。
-      </p>
-      <p class="hint">
-        Prompt Cache：Azure 對 GPT-4o 以後的模型會自動快取提示前綴（不需設定、也無法關閉），排版規則因此固定放在
-        System Prompt、文章內容一律放最後。實際命中量會記錄在頁面 Console 的
-        <code>[FWA] AI 排版完成</code> 那一行；若顯示「cached input 未回報」，代表這個 Deployment 的模型或
-        API Version 沒有回傳 <code>prompt_tokens_details.cached_tokens</code>。
-      </p>
-      <p class="hint">
-        文章太長時會自動切段循序送出，避免單次回應被 <code>max_tokens</code> 截斷；切段時每段看不到其他段落，
-        跨章節的標題層級請自行確認。若只想整理其中一段，先在編輯器選取該範圍再按 AI 排版。
-      </p>
-      <label class="row"><span class="grow">Azure Endpoint</span><input type="text" id="azureEndpoint" placeholder="https://your-resource.openai.azure.com" autocomplete="off" spellcheck="false" /></label>
-      <label class="row"><span class="grow">Azure Deployment Name</span><input type="text" id="azureDeployment" placeholder="例如：gpt-4.1 或自訂部署名稱" autocomplete="off" spellcheck="false" /></label>
-      <label class="row"><span class="grow">Azure API Version</span><input type="text" id="azureApiVersion" placeholder="2024-12-01-preview" autocomplete="off" spellcheck="false" /></label>
-      <label class="row">
-        <span class="grow">Azure OpenAI API Key</span>
-        <input type="password" id="azureApiKey" placeholder="貼上 Azure OpenAI API Key" autocomplete="off" spellcheck="false" />
-        <button id="toggleAzureApiKey" type="button">顯示</button>
-      </label>
-    </fieldset>
-
-    <fieldset>
-      <legend>模板備份</legend>
-      <button id="exportTemplates" type="button">匯出模板 JSON</button>
-      <button id="importTemplates" type="button">匯入模板（合併）</button>
-      <button id="restoreTemplates" type="button">還原備份（取代全部）</button>
-      <p class="hint">匯出檔可作為備份；「還原備份」會以檔案內容取代目前所有模板。</p>
-    </fieldset>
+      <section class="settings-card">
+        <div class="settings-card-title">完整設定檔 <span class="english">Backup</span></div>
+        <div class="backup-actions">
+          <button id="exportFullSettings" type="button">匯出全部設定（含 API Key）</button>
+          <button id="exportSettingsWithoutApiKey" type="button">匯出所有設定（不含 API Key）</button>
+          <button id="importFullSettings" type="button">匯入全部設定</button>
+        </div>
+        <p class="hint">包含外觀、客戶名單、資料夾、模板、圖片與 AI 設定；匯入會完整取代目前設定。含 API Key 的檔案請妥善保管。</p>
+      </section>
+    </main>
 
     <script type="module" src="./settings.ts"></script>
   </body>

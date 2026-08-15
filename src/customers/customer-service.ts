@@ -1,11 +1,13 @@
 import { sanitizePathSegments, wikiConfig } from '../config/wiki-config';
 import {
   getCustomerBranches,
+  getCustomerFolders,
   getCustomers,
   saveCustomerBranches,
+  saveCustomerFolders,
   saveCustomers,
 } from '../shared/storage';
-import type { Customer, CustomerBranch, CustomerBranchMap } from '../shared/types';
+import type { Customer, CustomerBranch, CustomerBranchMap, CustomerFolder } from '../shared/types';
 
 /**
  * CRUD for the "客戶" nav directory and each customer's branches (sub-pages).
@@ -21,9 +23,18 @@ export async function listCustomers(): Promise<Customer[]> {
   return getCustomers();
 }
 
+export async function listCustomerFolders(): Promise<CustomerFolder[]> {
+  return getCustomerFolders();
+}
+
 export interface CustomerInput {
   name: string;
   pagePath: string;
+  folderId?: string | null;
+}
+
+export interface CustomerFolderInput {
+  name: string;
 }
 
 export interface CustomerExportBranch {
@@ -35,6 +46,8 @@ export interface CustomerExportEntry {
   name: string;
   pagePath: string;
   branches: CustomerExportBranch[];
+  /** Folder name is used instead of the local folder ID so backups stay portable. */
+  folder?: string;
 }
 
 /** Portable backup format. IDs and timestamps are intentionally omitted on export. */
@@ -43,6 +56,7 @@ export interface CustomerExport {
   version: 1;
   exportedAt: string;
   customers: CustomerExportEntry[];
+  folders?: Array<{ name: string }>;
 }
 
 export interface CustomerImportResult {
@@ -53,10 +67,119 @@ export interface CustomerImportResult {
 }
 
 export async function createCustomer(input: CustomerInput): Promise<Customer> {
-  const customer: Customer = { id: newId('cust'), createdAt: new Date().toISOString(), ...input };
+  const { name, pagePath, folderId } = validateCustomerInput(input);
+  await assertFolderExists(folderId);
+  const customer: Customer = {
+    id: newId('cust'),
+    createdAt: new Date().toISOString(),
+    name,
+    pagePath,
+    ...(folderId ? { folderId } : {}),
+  };
   const all = await getCustomers();
   await saveCustomers([...all, customer]);
   return customer;
+}
+
+export async function createCustomerFolder(input: CustomerFolderInput): Promise<CustomerFolder> {
+  const name = normalizeFolderName(input.name);
+  if (!name) throw new Error('資料夾名稱不可為空');
+  const folders = await getCustomerFolders();
+  if (folders.some((folder) => folder.name.trim().toLocaleLowerCase() === name.toLocaleLowerCase())) {
+    throw new Error('已有同名資料夾');
+  }
+  const folder: CustomerFolder = { id: newId('folder'), name, createdAt: new Date().toISOString() };
+  await saveCustomerFolders([...folders, folder]);
+  return folder;
+}
+
+/** Updates a customer and keeps its branch bucket attached when its name changes. */
+export async function updateCustomer(id: string, input: CustomerInput): Promise<void> {
+  const { name, pagePath, folderId } = validateCustomerInput(input);
+  await assertFolderExists(folderId);
+  const all = await getCustomers();
+  const current = all.find((customer) => customer.id === id);
+  if (!current) return;
+  const nextKey = customerBranchKey(name);
+  if (all.some((customer) => customer.id !== id && customerBranchKey(customer.name) === nextKey)) {
+    throw new Error('已有同名客戶');
+  }
+
+  const updated: Customer = {
+    ...current,
+    name,
+    pagePath,
+    ...(folderId ? { folderId } : {}),
+  };
+  const nextCustomers = all.map((customer) => (customer.id === id ? updated : customer));
+  const oldKey = customerBranchKey(current.name);
+  if (oldKey !== nextKey) {
+    const branches = await getCustomerBranches();
+    const oldBucket = branches[oldKey];
+    const oldKeyStillUsed = all.some(
+      (customer) => customer.id !== id && customerBranchKey(customer.name) === oldKey,
+    );
+    if (oldBucket && !oldKeyStillUsed) {
+      const nextBranches = { ...branches, [nextKey]: oldBucket };
+      delete nextBranches[oldKey];
+      await Promise.all([saveCustomers(nextCustomers), saveCustomerBranches(nextBranches)]);
+      return;
+    }
+  }
+  await saveCustomers(nextCustomers);
+}
+
+/** Reorders the customer array; array order is the display order within folders. */
+export async function moveCustomer(id: string, delta: number): Promise<void> {
+  const all = await getCustomers();
+  const from = all.findIndex((customer) => customer.id === id);
+  const to = from + delta;
+  if (from < 0 || to < 0 || to >= all.length) return;
+  const reordered = [...all];
+  const [moved] = reordered.splice(from, 1);
+  reordered.splice(to, 0, moved);
+  await saveCustomers(reordered);
+}
+
+/** Moves a customer before/after another row and optionally changes its folder. */
+export async function reorderCustomer(
+  id: string,
+  targetId: string | null,
+  position: 'before' | 'after' = 'before',
+  folderId?: string | null,
+): Promise<void> {
+  const all = await getCustomers();
+  const moving = all.find((customer) => customer.id === id);
+  if (!moving) return;
+  await assertFolderExists(folderId);
+  const nextFolderId = folderId === undefined ? moving.folderId : normalizeFolderId(folderId);
+  const withoutMoving = all.filter((customer) => customer.id !== id);
+  const moved: Customer = nextFolderId
+    ? { ...moving, folderId: nextFolderId }
+    : (() => {
+        const withoutFolder = { ...moving };
+        delete withoutFolder.folderId;
+        return withoutFolder;
+      })();
+
+  if (targetId && targetId !== id) {
+    const targetIndex = withoutMoving.findIndex((customer) => customer.id === targetId);
+    if (targetIndex >= 0) {
+      withoutMoving.splice(position === 'after' ? targetIndex + 1 : targetIndex, 0, moved);
+      await saveCustomers(withoutMoving);
+      return;
+    }
+  }
+
+  // A drop on a folder's empty area appends after the last customer in that folder.
+  let insertionIndex = -1;
+  for (let index = 0; index < withoutMoving.length; index += 1) {
+    if (normalizeFolderId(withoutMoving[index].folderId) === normalizeFolderId(nextFolderId)) {
+      insertionIndex = index + 1;
+    }
+  }
+  withoutMoving.splice(insertionIndex < 0 ? withoutMoving.length : insertionIndex, 0, moved);
+  await saveCustomers(withoutMoving);
 }
 
 /**
@@ -84,15 +207,24 @@ export async function deleteCustomer(id: string): Promise<void> {
 
 /** Exports the directory and its branches without local-only IDs or timestamps. */
 export async function exportCustomers(): Promise<string> {
-  const [customers, branchMap] = await Promise.all([getCustomers(), getCustomerBranches()]);
+  const [customers, folders, branchMap] = await Promise.all([
+    getCustomers(),
+    getCustomerFolders(),
+    getCustomerBranches(),
+  ]);
+  const folderNames = new Map(folders.map((folder) => [folder.id, folder.name]));
   const payload: CustomerExport = {
     format: 'freedom-wiki-assistant-customers',
     version: 1,
     exportedAt: new Date().toISOString(),
+    folders: folders.map(({ name }) => ({ name })),
     customers: customers.map((customer) => ({
       name: customer.name,
       pagePath: customer.pagePath,
       branches: (branchMap[customerBranchKey(customer.name)] ?? []).map(({ name, target }) => ({ name, target })),
+      ...(customer.folderId && folderNames.has(customer.folderId)
+        ? { folder: folderNames.get(customer.folderId) }
+        : {}),
     })),
   };
   return JSON.stringify(payload, null, 2);
@@ -105,11 +237,32 @@ export async function exportCustomers(): Promise<string> {
  */
 export async function importCustomers(json: string): Promise<CustomerImportResult> {
   const incoming = parseCustomerExport(json);
-  const [existingCustomers, existingBranches] = await Promise.all([getCustomers(), getCustomerBranches()]);
+  const [existingCustomers, existingFolders, existingBranches] = await Promise.all([
+    getCustomers(),
+    getCustomerFolders(),
+    getCustomerBranches(),
+  ]);
   const nextCustomers = [...existingCustomers];
+  const nextFolders = [...existingFolders];
   const nextBranches: CustomerBranchMap = Object.fromEntries(
     Object.entries(existingBranches).map(([key, branches]) => [key, [...branches]]),
   );
+  const knownFolderNames = new Map(
+    nextFolders.map((folder) => [folder.name.trim().toLocaleLowerCase(), folder.id]),
+  );
+  const importedFolderNames = new Set([
+    ...(incoming.folders ?? []).map((folder) => folder.name),
+    ...incoming.customers.flatMap((customer) => (customer.folder ? [customer.folder] : [])),
+  ]);
+  for (const folderName of importedFolderNames) {
+    const normalized = normalizeFolderName(folderName);
+    if (!normalized) continue;
+    const key = normalized.toLocaleLowerCase();
+    if (knownFolderNames.has(key)) continue;
+    const folder: CustomerFolder = { id: newId('folder'), name: normalized, createdAt: new Date().toISOString() };
+    nextFolders.push(folder);
+    knownFolderNames.set(key, folder.id);
+  }
   const knownCustomerKeys = new Set(nextCustomers.map((customer) => customerBranchKey(customer.name)));
   let customersAdded = 0;
   let branchesAdded = 0;
@@ -121,11 +274,13 @@ export async function importCustomers(json: string): Promise<CustomerImportResul
     if (knownCustomerKeys.has(key)) {
       customersSkipped += 1;
     } else {
+      const folderId = entry.folder ? knownFolderNames.get(entry.folder.toLocaleLowerCase()) : undefined;
       nextCustomers.push({
         id: newId('cust'),
         name: entry.name,
         pagePath: entry.pagePath,
         createdAt: new Date().toISOString(),
+        ...(folderId ? { folderId } : {}),
       });
       knownCustomerKeys.add(key);
       customersAdded += 1;
@@ -146,7 +301,11 @@ export async function importCustomers(json: string): Promise<CustomerImportResul
     if (bucket.length > 0) nextBranches[key] = bucket;
   }
 
-  await Promise.all([saveCustomers(nextCustomers), saveCustomerBranches(nextBranches)]);
+  await Promise.all([
+    saveCustomers(nextCustomers),
+    saveCustomerFolders(nextFolders),
+    saveCustomerBranches(nextBranches),
+  ]);
   return { customersAdded, branchesAdded, customersSkipped, branchesSkipped };
 }
 
@@ -158,6 +317,35 @@ function normalizeCustomerPagePath(input: string): string | null {
   const path = input.trim().replace(/\/+$/, '');
   if (!path || !path.startsWith('/') || path.startsWith('//') || /[\r\n]/.test(path)) return null;
   return path;
+}
+
+function normalizeFolderName(input: string): string {
+  return input.trim().replace(/[\r\n]+/g, ' ');
+}
+
+function normalizeFolderId(input: string | null | undefined): string | undefined {
+  const trimmed = input?.trim();
+  return trimmed || undefined;
+}
+
+async function assertFolderExists(folderId: string | null | undefined): Promise<void> {
+  const normalized = normalizeFolderId(folderId);
+  if (!normalized) return;
+  const folders = await getCustomerFolders();
+  if (!folders.some((folder) => folder.id === normalized)) throw new Error('指定的資料夾不存在');
+}
+
+function validateCustomerInput(input: CustomerInput): {
+  name: string;
+  pagePath: string;
+  folderId?: string;
+} {
+  const name = input.name.trim();
+  const pagePath = normalizeCustomerPagePath(input.pagePath);
+  if (!name) throw new Error('客戶名稱不可為空');
+  if (!pagePath) throw new Error('Wiki 頁面路徑必須是以「/」開頭的路徑');
+  const folderId = normalizeFolderId(input.folderId);
+  return { name, pagePath, ...(folderId ? { folderId } : {}) };
 }
 
 function branchIdentity(name: string, target: string): string {
@@ -178,20 +366,38 @@ function parseCustomerExport(json: string): CustomerExport {
     const name = raw.name.trim();
     const pagePath = normalizeCustomerPagePath(raw.pagePath);
     if (!name || !pagePath) throw new Error(`第 ${index + 1} 筆客戶名稱或 Wiki 路徑無效`);
+    const folder = raw.folder === undefined
+      ? undefined
+      : typeof raw.folder === 'string' && normalizeFolderName(raw.folder)
+        ? normalizeFolderName(raw.folder)
+        : null;
+    if (folder === null) throw new Error(`第 ${index + 1} 筆客戶資料夾名稱無效`);
     const branches: CustomerExportBranch[] = raw.branches.map((branch, branchIndex) => {
       if (!isRecord(branch) || typeof branch.name !== 'string' || typeof branch.target !== 'string') {
         throw new Error(`第 ${index + 1} 筆客戶的第 ${branchIndex + 1} 個分支格式不正確`);
       }
       return validateBranchInput({ name: branch.name, target: branch.target });
     });
-    return { name, pagePath, branches };
+    return { name, pagePath, branches, ...(folder ? { folder } : {}) };
   });
+
+  let folders: Array<{ name: string }> | undefined;
+  if (parsed.folders !== undefined) {
+    if (!Array.isArray(parsed.folders)) throw new Error('客戶匯出檔的 folders 格式不正確');
+    folders = parsed.folders.map((folder, index) => {
+      if (!isRecord(folder) || typeof folder.name !== 'string' || !normalizeFolderName(folder.name)) {
+        throw new Error(`第 ${index + 1} 個資料夾名稱無效`);
+      }
+      return { name: normalizeFolderName(folder.name) };
+    });
+  }
 
   return {
     format: 'freedom-wiki-assistant-customers',
     version: 1,
     exportedAt: typeof parsed.exportedAt === 'string' ? parsed.exportedAt : '',
     customers,
+    ...(folders ? { folders } : {}),
   };
 }
 

@@ -16,17 +16,21 @@ vi.stubGlobal('chrome', {
 import {
   createBranch,
   createCustomer,
+  createCustomerFolder,
   customerBranchKey,
   deleteBranch,
   deleteCustomer,
   exportCustomers,
   importCustomers,
   listAllBranches,
+  listCustomerFolders,
   listBranches,
   listCustomers,
   moveBranch,
   normalizeBranchTarget,
+  reorderCustomer,
   resolveBranchUrl,
+  updateCustomer,
   updateBranch,
   viewPathForBranch,
 } from '../src/customers/customer-service';
@@ -116,6 +120,48 @@ describe('customer-service', () => {
     await createCustomer({ name: 'SampleCo', pagePath: '/docs/clients/sample-client' });
     await expect(importCustomers('{"format":"wrong"}')).rejects.toThrow('不是有效的客戶匯出檔');
     expect(await listCustomers()).toHaveLength(1);
+  });
+
+  it('creates folders, assigns customers, and reorders customers', async () => {
+    const folder = await createCustomerFolder({ name: '重要客戶' });
+    const first = await createCustomer({
+      name: 'FirstCo',
+      pagePath: '/docs/clients/first',
+      folderId: folder.id,
+    });
+    const second = await createCustomer({ name: 'SecondCo', pagePath: '/docs/clients/second' });
+
+    await reorderCustomer(second.id, first.id, 'before', folder.id);
+
+    expect((await listCustomers()).map((customer) => [customer.name, customer.folderId])).toEqual([
+      ['SecondCo', folder.id],
+      ['FirstCo', folder.id],
+    ]);
+    expect((await listCustomerFolders()).map((item) => item.name)).toEqual(['重要客戶']);
+  });
+
+  it('renames a customer without losing its branch links', async () => {
+    const customer = await createCustomer({ name: 'OldName', pagePath: '/docs/clients/old' });
+    await createBranch('OldName', { name: 'SOP', target: '/docs/clients/old/SOP' });
+
+    await updateCustomer(customer.id, { name: 'NewName', pagePath: '/docs/clients/new' });
+
+    expect((await listCustomers())[0]).toMatchObject({ name: 'NewName', pagePath: '/docs/clients/new' });
+    expect((await listBranches('NewName')).map((branch) => branch.name)).toEqual(['SOP']);
+    expect(await listBranches('OldName')).toEqual([]);
+  });
+
+  it('exports and imports folder assignments by folder name', async () => {
+    const folder = await createCustomerFolder({ name: '維護中' });
+    await createCustomer({ name: 'ExportCo', pagePath: '/docs/clients/export', folderId: folder.id });
+    const backup = await exportCustomers();
+
+    store.clear();
+    await importCustomers(backup);
+
+    const importedFolder = (await listCustomerFolders())[0];
+    expect(importedFolder.name).toBe('維護中');
+    expect((await listCustomers())[0].folderId).toBe(importedFolder.id);
   });
 });
 

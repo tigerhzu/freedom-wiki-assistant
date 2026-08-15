@@ -1,8 +1,17 @@
 import hybridCss from '../styles/hybrid-preview.css?inline';
 import { wikiConfig } from '../config/wiki-config';
 import { getSettings, saveSettings } from '../shared/storage';
-import type { EditorMode, Settings } from '../shared/types';
+import type { EditorMode, SelectionInfo, Settings } from '../shared/types';
 import type { EditorAdapter } from './editor-adapter';
+import {
+  applyBox,
+  applyCustomColor,
+  changeIndent,
+  removeBox,
+  setBlockAlign,
+  stripHtml,
+  toggleBlockquote,
+} from './block-format';
 import { parseHybridBlocks, type HybridMarkdownBlock } from './hybrid-blocks';
 import {
   canSerializeVisualBlock,
@@ -11,31 +20,37 @@ import {
   serializeVisualBlock,
 } from './hybrid-serialize';
 import { collectImageFiles, type ImageDropHandler } from './image-drop';
+import { BOX_PRESETS, DEFAULT_BOX, parseBorderShorthand } from './html-style';
 import { parseMarkdownImage } from './markdown-image';
-import { minimalDiff } from './markdown-format';
+import {
+  applyColor,
+  applySize,
+  clearFormatting,
+  minimalDiff,
+  toggleBold,
+  toggleHighlight,
+  toggleInlineCode,
+  toggleItalic,
+  toggleStrike,
+  toggleUnderline,
+  type EditResult,
+} from './markdown-format';
 import { createShadowHost, el, showToast } from './ui';
+import { findMarkdownTextRanges, findNormalizedTextRange } from './visual-selection';
 
 const STYLE_ID = 'fwa-hybrid-preview-style';
 const SOURCE_INDEX_ATTR = 'data-fwa-source-index';
+const DIRTY_BLOCK_ATTR = 'data-fwa-visual-dirty';
 const EXACT_SOURCE_ATTR = 'data-fwa-markdown-source';
-const VISUAL_BLOCK_STYLE_ATTR = 'data-fwa-visual-block-style';
-const BOX_STYLE_PROPS = [
-  'border',
-  'border-left',
-  'border-radius',
-  'background-color',
-  'padding',
-  'margin',
-] as const;
+type SourceEdit = (text: string, start: number, end: number) => EditResult;
 
-const VISUAL_BOX_PRESETS = [
-  { label: '一般資訊框', style: { border: '1px solid #cccccc', borderRadius: '6px', padding: '10px', margin: '8px 0' } },
-  { label: '藍色資訊框', style: { borderLeft: '4px solid #0d6efd', backgroundColor: '#f0f7ff', padding: '10px 12px', margin: '8px 0' } },
-  { label: '黃色注意框', style: { borderLeft: '4px solid #ffc107', backgroundColor: '#fffbf0', padding: '10px 12px', margin: '8px 0' } },
-  { label: '紅色警告框', style: { borderLeft: '4px solid #dc3545', backgroundColor: '#fff5f5', padding: '10px 12px', margin: '8px 0' } },
-  { label: '綠色完成框', style: { borderLeft: '4px solid #198754', backgroundColor: '#f2fbf5', padding: '10px 12px', margin: '8px 0' } },
-  { label: '灰色補充框', style: { borderLeft: '4px solid #6c757d', backgroundColor: '#f6f8fa', padding: '10px 12px', margin: '8px 0' } },
-] as const;
+interface VisualSourceSpan {
+  start: number;
+  end: number;
+  text: string;
+  firstIndex: number;
+  lastIndex: number;
+}
 
 function sourceIndexOf(element: HTMLElement): number | null {
   const raw = element.getAttribute(SOURCE_INDEX_ATTR);
@@ -70,8 +85,11 @@ export class HybridPreviewFeature {
   private visualRoot: HTMLElement | null = null;
   private visualSource = '';
   private visualBlocks: HybridMarkdownBlock[] = [];
+  private visualDirty = false;
   private observer: MutationObserver | null = null;
   private refreshTimer: number | undefined;
+  private renderWaitTimer: number | undefined;
+  private awaitingPreviewRender = false;
   private contextMenu: HTMLElement | null = null;
   private contextRange: Range | null = null;
   private contextImage: HTMLImageElement | null = null;
@@ -99,12 +117,20 @@ export class HybridPreviewFeature {
     this.mountToolbarBesideNativeActions();
 
     this.observer = new MutationObserver(() => {
-      if (this.mode === 'hybrid' && (!this.visualRoot || !this.visualRoot.isConnected)) this.scheduleVisualRefresh();
+      if (this.mode === 'raw') return;
+      if (this.awaitingPreviewRender) {
+        this.awaitingPreviewRender = false;
+        window.clearTimeout(this.renderWaitTimer);
+        this.scheduleVisualRefresh();
+        return;
+      }
+      if (!this.visualRoot || !this.visualRoot.isConnected) this.scheduleVisualRefresh();
     });
-    this.observer.observe(content, { childList: true, subtree: true });
+    this.observer.observe(content, { childList: true, characterData: true, subtree: true });
     document.addEventListener('keydown', this.onDocumentKeyDown, true);
     document.addEventListener('mousedown', this.onDocumentMouseDown, true);
     document.addEventListener('click', this.onNativeSaveCapture, true);
+    document.addEventListener('click', this.onNativeCloseCapture, true);
     this.applyMode();
   }
 
@@ -112,15 +138,21 @@ export class HybridPreviewFeature {
     document.removeEventListener('keydown', this.onDocumentKeyDown, true);
     document.removeEventListener('mousedown', this.onDocumentMouseDown, true);
     document.removeEventListener('click', this.onNativeSaveCapture, true);
+    document.removeEventListener('click', this.onNativeCloseCapture, true);
     this.observer?.disconnect();
     this.observer = null;
     window.clearTimeout(this.refreshTimer);
+    window.clearTimeout(this.renderWaitTimer);
+    this.awaitingPreviewRender = false;
     this.closeContextMenu();
     this.deactivateVisualDocument();
     this.rawHost?.remove();
     this.rawHost = null;
     this.rawTextarea = null;
-    if (this.previewContent) this.previewContent.style.display = '';
+    if (this.previewContent) {
+      this.previewContent.style.display = '';
+      this.previewContent.classList.remove('fwa-future-shell');
+    }
     this.toolbar?.remove();
     this.toolbar = null;
     this.preview?.classList.remove('fwa-mode-frame', 'fwa-hybrid-fullscreen');
@@ -175,13 +207,14 @@ export class HybridPreviewFeature {
     return null;
   }
 
-  private setMode(mode: EditorMode): void {
-    if (mode === this.mode && mode === 'hybrid') return;
-    if (this.mode === 'hybrid' && !this.commitVisualDocument()) return;
+  private setMode(mode: EditorMode, persist = true): boolean {
+    if (mode === this.mode && mode === 'hybrid') return true;
+    if (this.mode !== 'raw' && !this.commitVisualDocument()) return false;
     if (this.mode === 'raw') this.commitRaw();
     this.mode = mode;
     this.applyMode();
-    void this.persistMode();
+    if (persist) void this.persistMode();
+    return true;
   }
 
   private async persistMode(): Promise<void> {
@@ -204,6 +237,7 @@ export class HybridPreviewFeature {
     this.rawHost = null;
     this.rawTextarea = null;
     this.previewContent.style.display = '';
+    this.previewContent.classList.remove('fwa-future-shell');
     this.preview.classList.remove('fwa-hybrid-fullscreen');
     document.documentElement.classList.remove('fwa-hybrid-page-open');
     this.updateModeButtons();
@@ -215,8 +249,9 @@ export class HybridPreviewFeature {
     if (this.mode === 'hybrid') {
       this.preview.classList.add('fwa-hybrid-fullscreen');
       document.documentElement.classList.add('fwa-hybrid-page-open');
-      this.activateVisualDocument();
+      this.previewContent.classList.add('fwa-future-shell');
     }
+    this.activateVisualDocument();
   }
 
   private mountRawEditor(): void {
@@ -247,8 +282,25 @@ export class HybridPreviewFeature {
   private scheduleVisualRefresh(): void {
     window.clearTimeout(this.refreshTimer);
     this.refreshTimer = window.setTimeout(() => {
-      if (this.mode === 'hybrid') this.activateVisualDocument();
+      if (this.mode !== 'raw') this.activateVisualDocument();
     }, 100);
+  }
+
+  /**
+   * Wiki.js updates its rendered preview asynchronously after CodeMirror is
+   * changed. Wait for an actual preview mutation before binding Future to the
+   * new DOM; otherwise Future can attach to the stale tree and appear unchanged
+   * until the user toggles modes. The timeout is only a fallback for renderers
+   * that replace no child nodes for a particular edit.
+   */
+  private waitForPreviewRender(): void {
+    window.clearTimeout(this.refreshTimer);
+    window.clearTimeout(this.renderWaitTimer);
+    this.awaitingPreviewRender = true;
+    this.renderWaitTimer = window.setTimeout(() => {
+      this.awaitingPreviewRender = false;
+      if (this.mode !== 'raw') this.scheduleVisualRefresh();
+    }, 1000);
   }
 
   private activateVisualDocument(): void {
@@ -258,35 +310,45 @@ export class HybridPreviewFeature {
     this.visualSource = this.adapter.getValue();
     this.visualBlocks = parseHybridBlocks(this.visualSource);
     this.mapSourceBlocks(root);
-    root.classList.add('fwa-hybrid-document');
+    root.classList.add('fwa-visual-document');
+    root.classList.toggle('fwa-hybrid-document', this.mode === 'hybrid');
     root.contentEditable = 'true';
     root.spellcheck = true;
     root.addEventListener('contextmenu', this.onVisualContextMenu);
     root.addEventListener('input', this.onVisualInput);
+    root.addEventListener('focusout', this.onVisualFocusOut);
+    root.addEventListener('copy', this.onVisualClipboard);
+    root.addEventListener('cut', this.onVisualClipboard);
     root.addEventListener('paste', this.onVisualPaste);
     root.addEventListener('dragover', this.onVisualDragOver);
     root.addEventListener('drop', this.onVisualDrop);
     for (const image of Array.from(root.querySelectorAll<HTMLElement>('img'))) image.contentEditable = 'false';
     this.visualRoot = root;
+    this.visualDirty = false;
     root.focus();
   }
 
-  private deactivateVisualDocument(): void {
+  private deactivateVisualDocument(preserveLayout = false): void {
     const root = this.visualRoot;
     if (!root) return;
     root.removeEventListener('contextmenu', this.onVisualContextMenu);
     root.removeEventListener('input', this.onVisualInput);
+    root.removeEventListener('focusout', this.onVisualFocusOut);
+    root.removeEventListener('copy', this.onVisualClipboard);
+    root.removeEventListener('cut', this.onVisualClipboard);
     root.removeEventListener('paste', this.onVisualPaste);
     root.removeEventListener('dragover', this.onVisualDragOver);
     root.removeEventListener('drop', this.onVisualDrop);
     root.contentEditable = 'false';
-    root.classList.remove('fwa-hybrid-document');
+    if (!preserveLayout) root.classList.remove('fwa-visual-document', 'fwa-hybrid-document');
     for (const element of Array.from(root.querySelectorAll<HTMLElement>(`[${SOURCE_INDEX_ATTR}]`))) {
       element.removeAttribute(SOURCE_INDEX_ATTR);
+      element.removeAttribute(DIRTY_BLOCK_ATTR);
       element.removeAttribute('title');
       element.contentEditable = 'inherit';
     }
     this.visualRoot = null;
+    this.visualDirty = false;
   }
 
   private mapSourceBlocks(root: HTMLElement): void {
@@ -327,13 +389,14 @@ export class HybridPreviewFeature {
   private commitVisualDocument(): boolean {
     const root = this.visualRoot;
     if (!root) return true;
+    if (!this.visualDirty) return true;
     if (this.activeImageUploads > 0) {
       showToast('圖片仍在上傳中，請等待上傳完成後再儲存。', 'info', 4500);
       return false;
     }
     const current = this.adapter.getValue();
     if (current !== this.visualSource) {
-      showToast('左側 Markdown 在視覺編輯期間已變動，為避免覆寫，請先退出再重新進入 Future。', 'error', 7000);
+      showToast('左側 Markdown 在右側視覺編輯期間已變動，為避免覆寫，請等待預覽重新同步後再試。', 'error', 7000);
       return false;
     }
 
@@ -347,6 +410,7 @@ export class HybridPreviewFeature {
       next = current;
       for (let index = children.length - 1; index >= 0; index--) {
         const block = this.visualBlocks[index];
+        if (!children[index].hasAttribute(DIRTY_BLOCK_ATTR)) continue;
         if (!canSerializeVisualBlock(block)) continue;
         const replacement = serializeVisualBlock(block, children[index]);
         if (replacement === null) return this.serializationFailed();
@@ -358,7 +422,9 @@ export class HybridPreviewFeature {
         const sourceIndex = sourceIndexOf(element);
         const block = sourceIndex === null ? undefined : this.visualBlocks[sourceIndex];
         const value = block
-          ? (canSerializeVisualBlock(block) ? serializeVisualBlock(block, element) : block.rawMarkdown)
+          ? (element.hasAttribute(DIRTY_BLOCK_ATTR) && canSerializeVisualBlock(block)
+              ? serializeVisualBlock(block, element)
+              : block.rawMarkdown)
           : serializeNewVisualBlock(element);
         if (value === null) return this.serializationFailed();
         if (value.trim() !== '') serialized.push(value);
@@ -369,12 +435,25 @@ export class HybridPreviewFeature {
 
     if (next !== current) {
       const diff = minimalDiff(current, next);
-      this.visualRoot = null;
+      this.deactivateVisualDocument(true);
+      this.waitForPreviewRender();
       this.adapter.setSelection(diff.from, diff.to);
       this.adapter.replaceSelection(diff.insert);
-      this.scheduleVisualRefresh();
+    } else {
+      this.visualDirty = false;
+      for (const element of children) element.removeAttribute(DIRTY_BLOCK_ATTR);
     }
     return true;
+  }
+
+  private markVisualDirty(element: Element | null = null): void {
+    this.visualDirty = true;
+    element?.closest<HTMLElement>(`[${SOURCE_INDEX_ATTR}]`)?.setAttribute(DIRTY_BLOCK_ATTR, 'true');
+  }
+
+  private markVisualDirtyFromNode(node: Node | null): void {
+    const element = node instanceof Element ? node : node?.parentElement ?? null;
+    this.markVisualDirty(element);
   }
 
   private serializationFailed(): false {
@@ -383,6 +462,7 @@ export class HybridPreviewFeature {
   }
 
   private readonly onVisualPaste = (event: ClipboardEvent): void => {
+    event.stopPropagation();
     const files = collectImageFiles(event.clipboardData?.files);
     if (files.length > 0) {
       event.preventDefault();
@@ -395,10 +475,36 @@ export class HybridPreviewFeature {
       return;
     }
     event.preventDefault();
-    document.execCommand('insertText', false, event.clipboardData?.getData('text/plain') ?? '');
+    const text = event.clipboardData?.getData('text/plain') ?? '';
+    if (text === '') return;
+
+    const inserted = document.execCommand('insertText', false, text);
+    if (!inserted) {
+      // Chromium normally supports insertText in contenteditable, but keep a
+      // DOM Range fallback for Wiki.js pages that override execCommand.
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0) return;
+      const range = selection.getRangeAt(0);
+      if (!this.visualRoot?.contains(range.commonAncestorContainer)) return;
+      range.deleteContents();
+      const node = document.createTextNode(text);
+      range.insertNode(node);
+      range.setStartAfter(node);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+    this.markVisualDirtyFromNode(window.getSelection()?.anchorNode ?? null);
   };
 
-  private readonly onVisualInput = (): void => {
+  /** Keep Wiki.js' document-level clipboard handlers from seeing a visual
+   * edit, while leaving the browser's native copy/cut action untouched. */
+  private readonly onVisualClipboard = (event: ClipboardEvent): void => {
+    event.stopPropagation();
+  };
+
+  private readonly onVisualInput = (event: Event): void => {
+    this.markVisualDirtyFromNode(window.getSelection()?.anchorNode ?? event.target as Node | null);
     // Future edits live in the rendered DOM until Save is pressed, so Wiki.js
     // may still consider its native button "SAVED" and disable it. Keep that
     // original action clickable; its capture handler commits Future first.
@@ -409,6 +515,181 @@ export class HybridPreviewFeature {
     saveButton.removeAttribute('aria-disabled');
     saveButton.classList.remove('v-btn--disabled');
   };
+
+  private readonly onVisualFocusOut = (): void => {
+    if (this.mode !== 'classic') return;
+    window.setTimeout(() => {
+      const root = this.visualRoot;
+      if (!root || this.contextMenu || root.contains(document.activeElement)) return;
+      this.commitVisualDocument();
+    }, 0);
+  };
+
+  /** Flush visual or Raw edits before another feature reads/writes the Markdown adapter. */
+  prepareExternalEditorAction(): boolean {
+    if (this.mode === 'raw') {
+      this.commitRaw();
+      return true;
+    }
+    return this.commitVisualDocument();
+  }
+
+  /**
+   * Map the live selection in Classic/Future's rendered document back to the
+   * Markdown source. Prefer an exact text match; when renderer-owned markup
+   * makes that impossible, return the complete intersected source block(s)
+   * so an external action never silently expands to the whole article.
+   */
+  getVisualSelection(): SelectionInfo | null {
+    const root = this.visualRoot;
+    const selection = window.getSelection();
+    if (!root || !selection || selection.isCollapsed || selection.rangeCount === 0) return null;
+
+    const range = selection.getRangeAt(0);
+    const selectedText = selection.toString();
+    const mapped = this.mapVisualRangeToSource(range, selectedText, true);
+    if (mapped) return mapped;
+
+    // A nested table cell may not have a source-index marker of its own. If
+    // the projected text is unique in the article, expose that one precise
+    // range to AI/template actions instead of treating the selection as empty.
+    const projected = this.mapVisualRangeToSourceSegments(range, selectedText, true);
+    return projected?.length === 1 ? projected[0] : null;
+  }
+
+  /**
+   * Resolve a rendered DOM range to its original Markdown offsets. Formatting
+   * commands must opt out of block fallback: wrapping a whole source block
+   * when only a few rendered characters were selected would rewrite list and
+   * Wiki.js directive layout.
+   */
+  private mapVisualRangeToSource(
+    range: Range,
+    selectedText: string,
+    allowBlockFallback: boolean,
+  ): SelectionInfo | null {
+    const root = this.visualRoot;
+    if (!root || !root.contains(range.startContainer) || !root.contains(range.endContainer)) return null;
+    const sourceSpan = this.visualSourceSpan(range);
+    if (!sourceSpan) return null;
+    const { start: spanStart, end: spanEnd, text: span, firstIndex, lastIndex } = sourceSpan;
+    const relativeStart = selectedText.trim() === '' ? -1 : span.indexOf(selectedText);
+    if (relativeStart >= 0 && relativeStart === span.lastIndexOf(selectedText)) {
+      const start = spanStart + relativeStart;
+      return { start, end: start + selectedText.length, text: selectedText };
+    }
+
+    // Repeated text inside one rendered block is still unambiguous from the
+    // user's caret position. Match its occurrence number in the DOM to the
+    // same occurrence in that block's Markdown instead of refusing common
+    // selections such as a repeated product or account name.
+    if (relativeStart >= 0 && firstIndex === lastIndex) {
+      const starts: number[] = [];
+      for (let offset = 0; offset <= span.length - selectedText.length;) {
+        const found = span.indexOf(selectedText, offset);
+        if (found < 0) break;
+        starts.push(found);
+        offset = found + Math.max(1, selectedText.length);
+      }
+      const sourceElement = Array.from(root.children).find((child) =>
+        child instanceof HTMLElement && sourceIndexOf(child) === firstIndex,
+      );
+      if (sourceElement instanceof HTMLElement && starts.length > 1) {
+        try {
+          const prefixRange = document.createRange();
+          prefixRange.selectNodeContents(sourceElement);
+          prefixRange.setEnd(range.startContainer, range.startOffset);
+          const renderedPrefix = prefixRange.toString();
+          let ordinal = 0;
+          for (let offset = 0; offset <= renderedPrefix.length - selectedText.length;) {
+            const found = renderedPrefix.indexOf(selectedText, offset);
+            if (found < 0) break;
+            ordinal++;
+            offset = found + Math.max(1, selectedText.length);
+          }
+          const matched = starts[ordinal];
+          if (matched !== undefined) {
+            const start = spanStart + matched;
+            return { start, end: start + selectedText.length, text: selectedText };
+          }
+        } catch {
+          // Fall through to normalized matching or safe block fallback.
+        }
+      }
+    }
+
+    const normalizedRange = findNormalizedTextRange(span, selectedText);
+    if (normalizedRange) {
+      const start = spanStart + normalizedRange.start;
+      const end = spanStart + normalizedRange.end;
+      return { start, end, text: this.visualSource.slice(start, end) };
+    }
+
+    return allowBlockFallback ? { start: spanStart, end: spanEnd, text: span } : null;
+  }
+
+  private visualSourceSpan(range: Range): VisualSourceSpan | null {
+    const root = this.visualRoot;
+    if (!root) return null;
+    const sourceIndexes: number[] = [];
+    for (const child of Array.from(root.children)) {
+      if (!(child instanceof HTMLElement)) continue;
+      try {
+        if (!range.intersectsNode(child)) continue;
+      } catch {
+        continue;
+      }
+      const sourceIndex = sourceIndexOf(child);
+      if (sourceIndex !== null) sourceIndexes.push(sourceIndex);
+    }
+    if (sourceIndexes.length === 0) return null;
+
+    const firstIndex = Math.min(...sourceIndexes);
+    const lastIndex = Math.max(...sourceIndexes);
+    const firstBlock = this.visualBlocks[firstIndex];
+    const lastBlock = this.visualBlocks[lastIndex];
+    if (!firstBlock || !lastBlock) return null;
+    const start = firstBlock.startOffset;
+    const end = lastBlock.endOffset;
+    return { start, end, text: this.visualSource.slice(start, end), firstIndex, lastIndex };
+  }
+
+  private mapVisualRangeToSourceSegments(
+    range: Range,
+    selectedText: string,
+    allowGlobalFallback = true,
+  ): SelectionInfo[] | null {
+    const exact = /\r?\n/.test(selectedText) ? null : this.mapVisualRangeToSource(range, selectedText, false);
+    if (exact) return [exact];
+    const span = this.visualSourceSpan(range);
+    // Some Wiki.js renderers wrap tables, figures, and other blocks in an
+    // extra container. In that case the browser selection intersects the
+    // nested cell/text node but none of the editor's direct children carries
+    // our source-index marker, so visualSourceSpan() is unavailable. A
+    // unique whole-document projection is still safe for inline formatting
+    // (and fixes selections such as a single table-cell value), while block
+    // commands explicitly opt out and retain their conservative fallback.
+    const source = span?.text ?? (allowGlobalFallback ? this.visualSource : null);
+    if (source === null) return null;
+    const baseOffset = span?.start ?? 0;
+    let projected = findMarkdownTextRanges(source, selectedText);
+    if ((!projected || projected.length === 0) && allowGlobalFallback && span) {
+      projected = findMarkdownTextRanges(this.visualSource, selectedText);
+      if (projected) {
+        return projected.map((item) => ({
+          start: item.start,
+          end: item.end,
+          text: this.visualSource.slice(item.start, item.end),
+        }));
+      }
+    }
+    if (!projected || projected.length === 0) return null;
+    return projected.map((item) => ({
+      start: baseOffset + item.start,
+      end: baseOffset + item.end,
+      text: source.slice(item.start, item.end),
+    }));
+  }
 
   private readonly onVisualDragOver = (event: DragEvent): void => {
     if (!this.settings.enableImageDrop || !event.dataTransfer?.types.includes('Files')) return;
@@ -461,6 +742,7 @@ export class HybridPreviewFeature {
     } else {
       root.appendChild(marker);
     }
+    this.markVisualDirty(marker);
 
     this.activeImageUploads++;
     try {
@@ -481,8 +763,11 @@ export class HybridPreviewFeature {
         const paragraph = document.createElement('p');
         paragraph.appendChild(fragment);
         marker.replaceWith(paragraph);
+        this.markVisualDirty(paragraph);
       } else {
+        const parent = marker.parentElement;
         marker.replaceWith(fragment);
+        this.markVisualDirty(parent);
       }
 
       const lastInserted = inserted.at(-1);
@@ -577,63 +862,86 @@ export class HybridPreviewFeature {
       const control = el('button', { class: 'fwa-swatch', title: color, style: `background:${color}` });
       control.addEventListener('mousedown', (event) => event.preventDefault());
       control.addEventListener('click', () => {
-        this.execCommand('foreColor', color);
+        this.applyVisualSourceEdit((text, start, end) => applyColor(text, start, end, color));
         this.closeContextMenu();
       });
       return control;
     });
     addSection('文字顏色', colorControls);
     divider();
+    const sizeStrategy = wikiConfig.formatting.fontSizeStrategy;
+    const sizeValue = (key: keyof typeof wikiConfig.formatting.fontSizes): string => {
+      const config = wikiConfig.formatting.fontSizes[key];
+      return sizeStrategy === 'span-style' ? config.spanStyle : config.fontAttr;
+    };
     addSection('文字大小', [
-      command('小', '小字', () => this.execCommand('fontSize', '2')),
-      command('一般', '一般大小', () => this.execCommand('fontSize', '3')),
-      command('中', '中等大小', () => this.execCommand('fontSize', '4')),
-      command('大', '大字', () => this.execCommand('fontSize', '5')),
-      command('特大', '特大字', () => this.execCommand('fontSize', '6')),
+      command('小', '小字', () => this.applyVisualSourceEdit((text, start, end) =>
+        applySize(text, start, end, sizeValue('small'), sizeStrategy))),
+      command('一般', '一般大小', () => this.applyVisualSourceEdit((text, start, end) =>
+        applySize(text, start, end, null, sizeStrategy))),
+      command('中', '中等大小', () => this.applyVisualSourceEdit((text, start, end) =>
+        applySize(text, start, end, sizeValue('medium'), sizeStrategy))),
+      command('大', '大字', () => this.applyVisualSourceEdit((text, start, end) =>
+        applySize(text, start, end, sizeValue('large'), sizeStrategy))),
+      command('特大', '特大字', () => this.applyVisualSourceEdit((text, start, end) =>
+        applySize(text, start, end, sizeValue('xlarge'), sizeStrategy))),
     ]);
     divider();
     addSection('其他格式', [
-      command('粗體', '粗體', () => this.execCommand('bold')),
-      command('斜體', '斜體', () => this.execCommand('italic')),
-      command('底線', '底線', () => this.execCommand('underline')),
-      command('刪除線', '刪除線', () => this.execCommand('strikeThrough')),
-      command('背景標記', '醒目提示', () => this.execCommand('hiliteColor', '#fff3a3')),
-      command('程式碼', '行內程式碼', () => this.wrapSelectionWithCode()),
-      command('清除格式', '清除文字格式', () => this.execCommand('removeFormat')),
+      command('粗體', '粗體', () => this.applyVisualSourceEdit(toggleBold)),
+      command('斜體', '斜體', () => this.applyVisualSourceEdit(toggleItalic)),
+      command('底線', '底線', () => this.applyVisualSourceEdit((text, start, end) =>
+        toggleUnderline(text, start, end, wikiConfig.formatting.underlineTag))),
+      command('刪除線', '刪除線', () => this.applyVisualSourceEdit(toggleStrike)),
+      command('背景標記', '醒目提示', () => this.applyVisualSourceEdit((text, start, end) =>
+        toggleHighlight(text, start, end, wikiConfig.formatting.highlightTag))),
+      command('程式碼', '行內程式碼', () => this.applyVisualSourceEdit(toggleInlineCode)),
+      command('清除格式', '清除文字格式', () => this.applyVisualSourceEdit(clearFormatting)),
     ]);
     divider();
     addSection('段落排版', [
-      command('引用區塊', '切換引用區塊', () => this.execCommand('formatBlock', 'blockquote')),
-      command('靠左', '靠左對齊', () => this.applyVisualBlockStyles({ textAlign: 'left' })),
-      command('置中', '置中對齊', () => this.applyVisualBlockStyles({ textAlign: 'center' })),
-      command('靠右', '靠右對齊', () => this.applyVisualBlockStyles({ textAlign: 'right' })),
-      command('取消對齊', '移除對齊', () => this.applyVisualBlockStyles({ textAlign: '' })),
-      command('增加縮排', '增加段落縮排', () => this.changeVisualIndent(1)),
-      command('減少縮排', '減少段落縮排', () => this.changeVisualIndent(-1)),
-      command('清除 HTML', '清除 HTML 與區塊樣式', () => this.clearVisualHtml()),
+      command('引用區塊', '切換引用區塊', () => this.applyVisualSourceEdit(toggleBlockquote, true)),
+      command('靠左', '靠左對齊', () => this.applyVisualSourceEdit((text, start, end) =>
+        setBlockAlign(text, start, end, 'left'), true)),
+      command('置中', '置中對齊', () => this.applyVisualSourceEdit((text, start, end) =>
+        setBlockAlign(text, start, end, 'center'), true)),
+      command('靠右', '靠右對齊', () => this.applyVisualSourceEdit((text, start, end) =>
+        setBlockAlign(text, start, end, 'right'), true)),
+      command('取消對齊', '移除對齊', () => this.applyVisualSourceEdit((text, start, end) =>
+        setBlockAlign(text, start, end, null), true)),
+      command('增加縮排', '增加段落縮排', () => this.applyVisualSourceEdit((text, start, end) =>
+        changeIndent(text, start, end, 1), true)),
+      command('減少縮排', '減少段落縮排', () => this.applyVisualSourceEdit((text, start, end) =>
+        changeIndent(text, start, end, -1), true)),
+      command('清除 HTML', '清除 HTML 與區塊樣式', () => this.applyVisualSourceEdit(stripHtml, true)),
     ]);
     divider();
     addSection('文字框', [
-      command('文字框', '套用一般文字框', () => this.applyVisualBox(VISUAL_BOX_PRESETS[0].style)),
+      command('文字框', '套用一般文字框', () => this.applyVisualSourceEdit((text, start, end) =>
+        applyBox(text, start, end, DEFAULT_BOX), true)),
       command('文字框設定', '自訂文字框框線', () => this.promptVisualBoxSettings()),
-      command('實線框', '套用 2px 實線框', () => this.applyVisualBox({ border: '2px solid #cccccc', borderRadius: '6px', padding: '10px', margin: '8px 0' })),
-      command('虛線框', '套用虛線框', () => this.applyVisualBox({ border: '2px dashed #6c757d', borderRadius: '6px', padding: '10px', margin: '8px 0' })),
-      command('移除文字框', '只移除文字框樣式', () => this.removeVisualBox()),
+      command('實線框', '套用 2px 實線框', () => this.applyVisualSourceEdit((text, start, end) =>
+        applyBox(text, start, end, { ...DEFAULT_BOX, width: '2px' }), true)),
+      command('虛線框', '套用虛線框', () => this.applyVisualSourceEdit((text, start, end) =>
+        applyBox(text, start, end, { ...DEFAULT_BOX, width: '2px', style: 'dashed', color: '#6c757d' }), true)),
+      command('移除文字框', '只移除文字框樣式', () => this.applyVisualSourceEdit(removeBox, true)),
     ]);
-    addSection('快速資訊樣式', VISUAL_BOX_PRESETS.map((preset) =>
-      command(preset.label, preset.label, () => this.applyVisualBox(preset.style)),
+    addSection('快速資訊樣式', BOX_PRESETS.map((preset) =>
+      command(preset.label, preset.label, () => this.applyVisualSourceEdit((text, start, end) =>
+        applyBox(text, start, end, preset.spec), true)),
     ));
     divider();
 
     const textColor = el('input', { type: 'color', class: 'fwa-color-input', title: '自訂文字顏色' });
     textColor.addEventListener('change', () => {
-      this.execCommand('foreColor', textColor.value);
+      this.applyVisualSourceEdit((text, start, end) => applyColor(text, start, end, textColor.value));
       this.closeContextMenu();
     });
     const background = el('input', { type: 'color', class: 'fwa-color-input', title: '自訂背景顏色' });
     background.value = '#fff3a3';
     background.addEventListener('change', () => {
-      this.execCommand('hiliteColor', background.value);
+      this.applyVisualSourceEdit((text, start, end) =>
+        applyCustomColor(text, start, end, 'background-color', background.value));
       this.closeContextMenu();
     });
     addSection('自訂顏色（字色／背景）', [textColor, background]);
@@ -667,82 +975,19 @@ export class HybridPreviewFeature {
     ]);
   }
 
-  private restoreContextSelection(): void {
-    if (!this.contextRange) return;
-    const selection = window.getSelection();
-    selection?.removeAllRanges();
-    selection?.addRange(this.contextRange.cloneRange());
-  }
-
-  private selectedVisualBlocks(): HTMLElement[] {
-    const root = this.visualRoot;
-    const range = this.contextRange;
-    if (!root || !range) return [];
-    return Array.from(root.children).filter((child): child is HTMLElement => {
-      if (!(child instanceof HTMLElement)) return false;
-      try {
-        return range.intersectsNode(child);
-      } catch {
-        return false;
-      }
-    });
-  }
-
-  private applyVisualBlockStyles(styles: Record<string, string>): void {
-    for (const block of this.selectedVisualBlocks()) {
-      block.setAttribute(VISUAL_BLOCK_STYLE_ATTR, 'true');
-      for (const [property, value] of Object.entries(styles)) {
-        if (value) block.style.setProperty(property.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`), value);
-        else block.style.removeProperty(property.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`));
-      }
-    }
-  }
-
-  private changeVisualIndent(direction: 1 | -1): void {
-    for (const block of this.selectedVisualBlocks()) {
-      const current = Number.parseFloat(block.style.marginLeft) || 0;
-      const next = Math.max(0, Math.min(12, current + direction * 2));
-      this.applyStyleToBlock(block, 'margin-left', next ? `${next}em` : '');
-    }
-  }
-
-  private applyStyleToBlock(block: HTMLElement, property: string, value: string): void {
-    block.setAttribute(VISUAL_BLOCK_STYLE_ATTR, 'true');
-    if (value) block.style.setProperty(property, value);
-    else block.style.removeProperty(property);
-  }
-
-  private applyVisualBox(styles: Readonly<Record<string, string>>): void {
-    for (const block of this.selectedVisualBlocks()) {
-      for (const property of BOX_STYLE_PROPS) block.style.removeProperty(property);
-      block.setAttribute(VISUAL_BLOCK_STYLE_ATTR, 'true');
-      for (const [property, value] of Object.entries(styles)) {
-        block.style.setProperty(property.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`), value);
-      }
-    }
-  }
-
-  private removeVisualBox(): void {
-    for (const block of this.selectedVisualBlocks()) {
-      for (const property of BOX_STYLE_PROPS) block.style.removeProperty(property);
-    }
-  }
-
   private promptVisualBoxSettings(): void {
     const border = window.prompt('輸入文字框框線，例如 2px dashed #0d6efd', '2px solid #cccccc')?.trim();
     if (!border || /[;{}]/.test(border)) return;
     const radius = window.prompt('輸入圓角，例如 6px；不需要圓角可輸入 0', '6px')?.trim() ?? '6px';
-    this.applyVisualBox({ border, borderRadius: radius, padding: '10px 12px', margin: '8px 0' });
-  }
-
-  private clearVisualHtml(): void {
-    const blocks = this.selectedVisualBlocks();
-    this.restoreContextSelection();
-    document.execCommand('removeFormat');
-    for (const block of blocks) {
-      block.removeAttribute('style');
-      block.removeAttribute(VISUAL_BLOCK_STYLE_ATTR);
-    }
+    const parsed = parseBorderShorthand(border);
+    this.applyVisualSourceEdit((text, start, end) => applyBox(text, start, end, {
+      ...DEFAULT_BOX,
+      width: parsed.width,
+      style: parsed.style,
+      color: parsed.color,
+      radius,
+      padding: '10px 12px',
+    }), true);
   }
 
   private editContextImage(edit: (image: HTMLImageElement) => void): void {
@@ -750,6 +995,7 @@ export class HybridPreviewFeature {
     if (!image) return;
     image.removeAttribute(EXACT_SOURCE_ATTR);
     edit(image);
+    this.markVisualDirty(image);
   }
 
   private setVisualImageSize(width: string): void {
@@ -814,20 +1060,67 @@ export class HybridPreviewFeature {
     this.editContextImage((image) => image.removeAttribute('style'));
   }
 
-  private execCommand(command: string, value?: string): void {
-    this.restoreContextSelection();
-    document.execCommand('styleWithCSS', false, 'false');
-    document.execCommand(command, false, value);
-  }
+  /**
+   * Apply a right-click formatting action directly to Markdown. Mutating the
+   * contenteditable DOM would mark an entire list/blockquote dirty and the
+   * visual serializer could then rebuild unrelated layout. Source edits change
+   * only the intended range (or whole lines for an explicit block action).
+   */
+  private applyVisualSourceEdit(edit: SourceEdit, allowBlockFallback = false): void {
+    const range = this.contextRange;
+    if (!range || range.collapsed) return;
 
-  private wrapSelectionWithCode(): void {
-    this.restoreContextSelection();
-    const selection = window.getSelection();
-    if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
-    const range = selection.getRangeAt(0);
-    const wrapper = document.createElement('code');
-    wrapper.appendChild(range.extractContents());
-    range.insertNode(wrapper);
+    const selectedText = range.toString();
+    const precise = this.mapVisualRangeToSourceSegments(range, selectedText, !allowBlockFallback) ?? [];
+    let mapped = precise;
+    if (allowBlockFallback && precise.length > 1) {
+      const start = precise[0].start;
+      const end = precise.at(-1)!.end;
+      mapped = [{ start, end, text: this.visualSource.slice(start, end) }];
+    } else if (allowBlockFallback && precise.length === 0) {
+      mapped = [this.mapVisualRangeToSource(range, selectedText, true)]
+        .filter((item): item is SelectionInfo => item !== null);
+    }
+    if (mapped.length === 0 || mapped.every((item) => item.text.trim() === '')) {
+      showToast('無法安全對應這段選取內容；請縮小反白範圍後再套用格式。', 'error', 6000);
+      return;
+    }
+
+    const aggregateStart = mapped[0].start;
+    const aggregateEnd = mapped.at(-1)!.end;
+    const aggregateText = this.visualSource.slice(aggregateStart, aggregateEnd);
+
+    // Flush other pending visual edits first. The colour operation itself has
+    // not touched the DOM, so it never sends the selected block through the
+    // lossy visual serializer merely to add a font tag.
+    if (this.visualDirty && !this.commitVisualDocument()) return;
+
+    const current = this.adapter.getValue();
+    let delta = 0;
+    if (current.slice(aggregateStart, aggregateEnd) !== aggregateText) {
+      const relocated = current.indexOf(aggregateText);
+      if (relocated < 0 || relocated !== current.lastIndexOf(aggregateText)) {
+        showToast('內容已變動，無法安全定位選取文字；請重新選取後再試。', 'error', 6000);
+        return;
+      }
+      delta = relocated - aggregateStart;
+    }
+
+    let next = current;
+    let finalSelection = { start: aggregateStart + delta, end: aggregateEnd + delta };
+    for (let index = mapped.length - 1; index >= 0; index--) {
+      const item = mapped[index];
+      const result = edit(next, item.start + delta, item.end + delta);
+      next = result.text;
+      finalSelection = { start: result.start, end: result.end };
+    }
+    if (next === current) return;
+    const diff = minimalDiff(current, next);
+    this.deactivateVisualDocument(true);
+    this.waitForPreviewRender();
+    this.adapter.setSelection(diff.from, diff.to);
+    this.adapter.replaceSelection(diff.insert);
+    this.adapter.setSelection(finalSelection.start, finalSelection.end);
   }
 
   private closeContextMenu(): void {
@@ -843,7 +1136,7 @@ export class HybridPreviewFeature {
   };
 
   private saveThroughWiki(): void {
-    if (this.mode === 'hybrid' && !this.commitVisualDocument()) return;
+    if (this.mode !== 'raw' && !this.commitVisualDocument()) return;
     if (this.mode === 'raw') this.commitRaw();
     window.setTimeout(() => {
       const icon = document.querySelector<HTMLElement>(wikiConfig.editor.saveButtonIconSelector);
@@ -854,7 +1147,7 @@ export class HybridPreviewFeature {
   }
 
   private readonly onNativeSaveCapture = (event: MouseEvent): void => {
-    if (this.mode !== 'hybrid') return;
+    if (this.mode === 'raw') return;
     const icon = document.querySelector<HTMLElement>(wikiConfig.editor.saveButtonIconSelector);
     const saveButton = icon?.closest<HTMLButtonElement>('button');
     if (!saveButton || !event.composedPath().includes(saveButton)) return;
@@ -862,6 +1155,49 @@ export class HybridPreviewFeature {
     event.preventDefault();
     event.stopImmediatePropagation();
   };
+
+  /**
+   * Future still uses Wiki.js' native Close action.  Before that handler runs,
+   * leave the fixed Future shell through the same Classic cleanup path.  The
+   * old fixed preview/body lock could otherwise survive the SPA navigation and
+   * make the Close action look frozen.  We deliberately keep the native event
+   * flowing after the cleanup so Classic and Future use one button and one
+   * Wiki.js close implementation.
+   */
+  private readonly onNativeCloseCapture = (event: MouseEvent): void => {
+    if (this.mode !== 'hybrid') return;
+    const closeButton = this.findNativeCloseButton();
+    if (!closeButton || !event.composedPath().includes(closeButton)) return;
+
+    // Keep the native Close semantics: pending visual edits are first synced
+    // to the Markdown adapter, but Wiki.js still decides whether to save,
+    // prompt, or leave the page. Do not persist the temporary Classic mode —
+    // the user's preferred Future mode should remain the default next time.
+    if (!this.setMode('classic', false)) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
+  };
+
+  private findNativeCloseButton(): HTMLButtonElement | null {
+    const saveIcon = document.querySelector<HTMLElement>(wikiConfig.editor.saveButtonIconSelector);
+    const saveButton = saveIcon?.closest<HTMLButtonElement>('button') ?? null;
+    const header = saveButton ? this.findNativeHeader(saveButton) : null;
+    const candidates = Array.from((header ?? document).querySelectorAll<HTMLButtonElement>('button'));
+    return candidates.find((button) => {
+      const label = [
+        button.textContent ?? '',
+        button.getAttribute('aria-label') ?? '',
+        button.getAttribute('title') ?? '',
+      ].join(' ').replace(/\s+/g, ' ').trim();
+      if (/\bclose\b/i.test(label) || /關閉|退出(?:編輯|全螢幕)?/.test(label)) return true;
+
+      const classNames = [button, ...Array.from(button.querySelectorAll<HTMLElement>('[class]'))]
+        .flatMap((element) => Array.from(element.classList));
+      return classNames.some((name) => /(?:mdi|icon)[-_]?close|close[-_]?icon/i.test(name));
+    }) ?? null;
+  }
 
   private readonly onDocumentKeyDown = (event: KeyboardEvent): void => {
     if (event.key === 'Escape' && this.contextMenu) {
@@ -874,9 +1210,70 @@ export class HybridPreviewFeature {
       this.setMode('classic');
       return;
     }
-    if (this.mode === 'classic' || !(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 's') return;
+    if (this.mode !== 'raw' && this.isVisualEditingContext(event)) {
+      const modifier = event.ctrlKey || event.metaKey;
+      const key = event.key.toLowerCase();
+      if (modifier && key === 'z') {
+        event.preventDefault();
+        event.stopPropagation();
+        this.applyVisualHistory(event.shiftKey ? 'redo' : 'undo');
+        return;
+      }
+      if (modifier && key === 'y') {
+        event.preventDefault();
+        event.stopPropagation();
+        this.applyVisualHistory('redo');
+        return;
+      }
+    }
+    if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 's') return;
     event.preventDefault();
     event.stopPropagation();
     this.saveThroughWiki();
   };
+
+  private isVisualEditingContext(event: KeyboardEvent): boolean {
+    const root = this.visualRoot;
+    if (!root) return false;
+    const target = event.target;
+    if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
+      return root.contains(target);
+    }
+    if (target instanceof Node && root.contains(target)) return true;
+    if (document.activeElement && root.contains(document.activeElement)) return true;
+    const selection = window.getSelection();
+    return Boolean(selection && selection.rangeCount > 0 && root.contains(selection.getRangeAt(0).commonAncestorContainer));
+  }
+
+  private applyVisualHistory(direction: 'undo' | 'redo'): void {
+    // Let contenteditable's native history undo the last direct visual typing,
+    // cut, or paste operation at the same granularity the user expects.
+    if (direction === 'undo' && this.visualRoot && this.visualRoot.contains(document.activeElement)) {
+      const before = this.visualRoot.innerHTML;
+      if (document.execCommand('undo') && this.visualRoot.innerHTML !== before) {
+        this.markVisualDirtyFromNode(window.getSelection()?.anchorNode ?? null);
+        return;
+      }
+    } else if (direction === 'redo' && this.visualRoot && this.visualRoot.contains(document.activeElement)) {
+      const before = this.visualRoot.innerHTML;
+      if (document.execCommand('redo') && this.visualRoot.innerHTML !== before) {
+        this.markVisualDirtyFromNode(window.getSelection()?.anchorNode ?? null);
+        return;
+      }
+    }
+
+    if (!this.commitVisualDocument()) return;
+    const before = this.adapter.getValue();
+    try {
+      const changed = direction === 'undo' ? this.adapter.undo() : this.adapter.redo();
+      const after = this.adapter.getValue();
+      if (!changed && after === before) return;
+    } catch (error) {
+      showToast(`無法${direction === 'undo' ? '復原' : '重做'}目前編輯：${error instanceof Error ? error.message : String(error)}`, 'error', 6000);
+      return;
+    }
+
+    this.deactivateVisualDocument(true);
+    this.waitForPreviewRender();
+  }
 }

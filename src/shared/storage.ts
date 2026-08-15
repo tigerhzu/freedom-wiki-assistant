@@ -2,6 +2,7 @@ import {
   DEFAULT_SETTINGS,
   type Customer,
   type CustomerBranchMap,
+  type CustomerFolder,
   type Settings,
   type Template,
 } from './types';
@@ -12,6 +13,7 @@ const KEYS = {
   settings: 'fwa:settings',
   templates: 'fwa:templates',
   customers: 'fwa:customers',
+  customerFolders: 'fwa:customerFolders',
   customerBranches: 'fwa:customerBranches',
 } as const;
 
@@ -40,6 +42,15 @@ export async function getCustomers(): Promise<Customer[]> {
 
 export async function saveCustomers(customers: Customer[]): Promise<void> {
   await chrome.storage.local.set({ [KEYS.customers]: customers });
+}
+
+export async function getCustomerFolders(): Promise<CustomerFolder[]> {
+  const raw = await chrome.storage.local.get(KEYS.customerFolders);
+  return (raw[KEYS.customerFolders] as CustomerFolder[] | undefined) ?? [];
+}
+
+export async function saveCustomerFolders(folders: CustomerFolder[]): Promise<void> {
+  await chrome.storage.local.set({ [KEYS.customerFolders]: folders });
 }
 
 /** Sub-pages per customer code. Separate key from `customers` so the existing customer list is never rewritten by branch edits. */

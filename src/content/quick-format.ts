@@ -1,5 +1,5 @@
 /**
- * 快速排版 —— 純本機規則，完全不呼叫 Azure OpenAI。
+ * Markdown 區塊切分工具，供 AI 長文切塊使用。
  *
  * 這個模組的安全保證（也是它刻意接受的限制）：
  *   只調整「區塊與區塊之間的空行」、標題 `#` 後面的空白、以及行尾空白。
@@ -10,8 +10,7 @@
  * 替換，也不需要維護一份「保留清單」。想做語意層面的整理（標題層級、SOP
  * 結構、顏色重點）請用 AI 排版，那是另一條路徑。
  *
- * 純函式、無 DOM，契約與 markdown-format.ts / block-format.ts 相同
- * （見 tests/quick-format.test.ts）。
+ * 純函式、無 DOM；只辨識區塊邊界，不修改 Markdown 內容。
  */
 
 export type MdBlockKind = 'heading' | 'fence' | 'html' | 'table' | 'list' | 'quote' | 'paragraph';
@@ -44,8 +43,8 @@ function interruptsParagraph(line: string): boolean {
 
 /**
  * 把 Markdown 切成區塊，每個區塊的內容逐行原樣保留。區塊之間的空行不會
- * 進到任何區塊裡（分隔由呼叫端決定），所以這個函式同時是快速排版與
- * AI 切塊（markdown-chunk.ts）的共用基礎。
+ * 進到任何區塊裡（分隔由呼叫端決定），作為 AI 切塊
+ * （markdown-chunk.ts）的共用基礎。
  *
  * 關鍵的保守設計：
  *  - `|` 開頭的行只有在「區塊開頭」才算表格。GFM 的表格無法打斷段落，
@@ -176,44 +175,4 @@ export function splitMarkdownBlocks(lines: readonly string[]): MdBlock[] {
   }
 
   return blocks;
-}
-
-/** `##   標題` → `## 標題`。只在本來就是標題時收斂空白，不會把 `#文字` 變成標題。 */
-function normalizeHeading(line: string): string {
-  return line.replace(/^( {0,3}#{1,6})[ \t]+/, '$1 ');
-}
-
-/**
- * 清除行尾空白，但保留 Markdown 的硬換行（行尾兩個以上空格且下一行還有
- * 內容）—— 那兩個空格是語法，不是多餘的空白。
- */
-function trimLineEnd(line: string, nextLine: string | undefined): string {
-  const hardBreak = / {2,}$/.test(line) && nextLine !== undefined && nextLine.trim() !== '';
-  const body = line.replace(/[ \t]+$/, '');
-  return hardBreak && body !== '' ? `${body}  ` : body;
-}
-
-/**
- * 快速排版本體：區塊之間統一一個空行、標題空白收斂、行尾空白清除、
- * 開頭空行移除、結尾維持原本有無換行。程式碼區塊與 HTML 區塊內部完全不動。
- *
- * 這個函式是 idempotent 的：quickFormat(quickFormat(x)) === quickFormat(x)。
- */
-export function quickFormat(input: string): string {
-  const endedWithNewline = /\n$/.test(input);
-  const blocks = splitMarkdownBlocks(input.replace(/\r\n?/g, '\n').split('\n'));
-
-  const rendered = blocks.map((block) => {
-    // fence / html 區塊：連行尾空白都不動，程式碼裡的空白可能有意義。
-    if (block.kind === 'fence' || block.kind === 'html') return block.lines.join('\n');
-    return block.lines
-      .map((line, idx, all) => {
-        const cleaned = trimLineEnd(line, all[idx + 1]);
-        return block.kind === 'heading' ? normalizeHeading(cleaned) : cleaned;
-      })
-      .join('\n');
-  });
-
-  const out = rendered.filter((text) => text.trim() !== '').join('\n\n');
-  return endedWithNewline && out !== '' ? `${out}\n` : out;
 }

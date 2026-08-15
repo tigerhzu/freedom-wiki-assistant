@@ -44,6 +44,31 @@ export async function updateTemplate(id: string, input: Partial<TemplateInput>):
   return updated;
 }
 
+/** Moves one template before/after another template in the saved display order. */
+export async function reorderTemplate(
+  id: string,
+  targetId: string | null,
+  position: 'before' | 'after' = 'before',
+): Promise<void> {
+  const all = await getTemplates();
+  const moving = all.find((template) => template.id === id);
+  if (!moving || id === targetId) return;
+
+  const withoutMoving = all.filter((template) => template.id !== id);
+  if (targetId) {
+    const targetIndex = withoutMoving.findIndex((template) => template.id === targetId);
+    if (targetIndex >= 0) {
+      withoutMoving.splice(position === 'after' ? targetIndex + 1 : targetIndex, 0, moving);
+      await saveTemplates(withoutMoving);
+      return;
+    }
+  }
+
+  // Dropping on the blank area of the list places the template at the end.
+  withoutMoving.push(moving);
+  await saveTemplates(withoutMoving);
+}
+
 export async function deleteTemplate(id: string): Promise<void> {
   const all = await getTemplates();
   await saveTemplates(all.filter((t) => t.id !== id));
@@ -64,7 +89,7 @@ export async function duplicateTemplate(id: string): Promise<Template | null> {
 export function filterTemplates(all: Template[], query: string, category: string): Template[] {
   const q = query.trim().toLowerCase();
   return all.filter((t) => {
-    if (category && t.category !== category) return false;
+    if (category && t.category.trim() !== category) return false;
     if (!q) return true;
     return (
       t.name.toLowerCase().includes(q) ||
@@ -75,7 +100,9 @@ export function filterTemplates(all: Template[], query: string, category: string
 }
 
 export function listCategories(all: Template[]): string[] {
-  return [...new Set(all.map((t) => t.category).filter(Boolean))].sort();
+  return [...new Set(all.map((t) => t.category.trim()).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b, 'zh-Hant'),
+  );
 }
 
 /* ── import / export / backup ── */
@@ -108,22 +135,64 @@ export async function importTemplates(json: string, mode: 'merge' | 'replace'): 
   if (parsed.format !== 'freedom-wiki-assistant-templates' || !Array.isArray(parsed.templates)) {
     throw new Error('不是有效的模板匯出檔');
   }
-  const incoming = parsed.templates.filter(
-    (t): t is Template =>
-      typeof t?.id === 'string' && typeof t?.name === 'string' && typeof t?.content === 'string',
-  );
+
+  const importedAt = new Date().toISOString();
+  const incoming = parsed.templates
+    .map((value) => normalizeImportedTemplate(value, importedAt))
+    .filter((template): template is Template => template !== null);
 
   if (mode === 'replace') {
-    await saveTemplates(incoming);
+    const usedIds = new Set<string>();
+    await saveTemplates(
+      incoming.map((template) => ({
+        ...template,
+        id: uniqueTemplateId(template.id, usedIds),
+      })),
+    );
     return incoming.length;
   }
 
   const existing = await getTemplates();
   const existingIds = new Set(existing.map((t) => t.id));
-  const merged = [
-    ...existing,
-    ...incoming.map((t) => (existingIds.has(t.id) ? { ...t, id: newId() } : t)),
-  ];
+  const merged = [...existing];
+  for (const template of incoming) {
+    merged.push({ ...template, id: uniqueTemplateId(template.id, existingIds) });
+  }
   await saveTemplates(merged);
   return incoming.length;
+}
+
+function normalizeImportedTemplate(value: unknown, fallbackDate: string): Template | null {
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value as Partial<Template>;
+  if (
+    typeof candidate.id !== 'string' ||
+    !candidate.id.trim() ||
+    typeof candidate.name !== 'string' ||
+    !candidate.name.trim() ||
+    typeof candidate.content !== 'string'
+  ) {
+    return null;
+  }
+
+  return {
+    id: candidate.id.trim(),
+    name: candidate.name.trim(),
+    category: typeof candidate.category === 'string' ? candidate.category.trim() : '',
+    description: typeof candidate.description === 'string' ? candidate.description.trim() : '',
+    content: candidate.content,
+    createdAt: validDateString(candidate.createdAt, fallbackDate),
+    updatedAt: validDateString(candidate.updatedAt, fallbackDate),
+  };
+}
+
+function validDateString(value: unknown, fallback: string): string {
+  return typeof value === 'string' && !Number.isNaN(Date.parse(value)) ? value : fallback;
+}
+
+function uniqueTemplateId(preferred: string, usedIds: Set<string>): string {
+  let id = preferred;
+  while (usedIds.has(id)) id = newId();
+  usedIds.add(id);
+  return id;
 }

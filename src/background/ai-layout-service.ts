@@ -214,7 +214,7 @@ export async function runAiLayout(
   // this result for apply so the editor remains untouched.
   if (findMissingPasswordValues(content, result.formatted_content).length > 0) {
     throw new AiLayoutError(
-      'AI 回傳結果疑似遮蔽或改寫原文密碼；為避免資料遺失，已停止套用。請重試或改用快速排版。',
+      'AI 回傳結果疑似遮蔽或改寫原文密碼；為避免資料遺失，已停止套用。請重試或自行調整格式。',
       'content-preservation-failed',
     );
   }

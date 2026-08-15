@@ -45,6 +45,23 @@ describe('applyColor', () => {
     const r = applyColor('abc', 0, 3, '#a1b2c3');
     expect(r.text).toBe('<font color="#a1b2c3">abc</font>');
   });
+
+  it('preserves every list marker, line break and Wiki.js directive around the selection', () => {
+    const text = [
+      '1. 新旭usb權限sop.docx',
+      '2. 新旭人員到職sop-20210409.docx',
+      '   (2023/1/1 新人到職，每位員工都要給予 MDO P1授權)',
+      '',
+      '> 2023/1/1 新人到職，每位員工都要給予 MOD P1授權',
+      '{.is-danger}',
+    ].join('\n');
+    const selected = 'MDO P1授權';
+    const start = text.indexOf(selected);
+    const result = applyColor(text, start, start + selected.length, 'red');
+
+    expect(result.text).toBe(text.replace(selected, `<font color="red">${selected}</font>`));
+    expect(result.text.replace(`<font color="red">${selected}</font>`, selected)).toBe(text);
+  });
 });
 
 describe('applySize (span-style strategy)', () => {

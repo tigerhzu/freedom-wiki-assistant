@@ -25,11 +25,6 @@ const IDLE_FPS = 6;
 /** Pointer movement below this, in CSS px, is treated as a click rather than a drag. */
 const DRAG_THRESHOLD_PX = 4;
 
-export interface PetMenuItem {
-  label: string;
-  onClick: () => void;
-}
-
 interface PetManifest {
   id: string;
   displayName: string;
@@ -86,16 +81,16 @@ function countUsedFrames(img: HTMLImageElement, cellW: number, cellH: number, ro
 export class PetWidget {
   private petEl: HTMLElement | null = null;
   private spriteEl: HTMLElement | null = null;
-  private menuEl: HTMLElement | null = null;
   private frame = 0;
   private idleFrameCount = GRID_COLS;
   private idleTimer: number | null = null;
   private drag: DragState | null = null;
   private suppressNextClick = false;
+  private readonly positionListeners = new Set<() => void>();
 
   constructor(private readonly petId = 'claude-crab') {}
 
-  attach(getItems: () => PetMenuItem[]): void {
+  attach(onClick: () => void): void {
     const { root } = createShadowHost('fwa-pet-host');
     root.querySelector('.fwa-pet')?.remove();
 
@@ -111,9 +106,8 @@ export class PetWidget {
         this.suppressNextClick = false;
         return;
       }
-      this.toggleMenu(getItems());
+      onClick();
     });
-    document.addEventListener('click', () => this.closeMenu());
     window.addEventListener('resize', () => this.clampToViewport());
 
     root.appendChild(pet);
@@ -122,6 +116,16 @@ export class PetWidget {
 
     void this.restorePosition();
     void this.loadSprite();
+  }
+
+  /** Lets an anchored overlay follow the pet while it is dragged. */
+  onPositionChange(listener: () => void): () => void {
+    this.positionListeners.add(listener);
+    return () => this.positionListeners.delete(listener);
+  }
+
+  getBounds(): DOMRect | null {
+    return this.petEl?.isConnected ? this.petEl.getBoundingClientRect() : null;
   }
 
   private async restorePosition(): Promise<void> {
@@ -144,6 +148,7 @@ export class PetWidget {
     this.petEl.style.top = `${clampedTop}px`;
     this.petEl.style.right = 'auto';
     this.petEl.style.bottom = 'auto';
+    this.positionListeners.forEach((listener) => listener());
   }
 
   /** Keeps the pet reachable if the viewport shrinks (e.g. window resize) after it was dragged. */
@@ -177,7 +182,6 @@ export class PetWidget {
     if (!this.drag.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
     if (!this.drag.moved) {
       this.drag.moved = true;
-      this.closeMenu();
     }
     this.setPosition(this.drag.originLeft + dx, this.drag.originTop + dy, this.petEl.offsetWidth, this.petEl.offsetHeight);
   };
@@ -258,53 +262,4 @@ export class PetWidget {
     }, 1000 / IDLE_FPS);
   }
 
-  private toggleMenu(items: PetMenuItem[]): void {
-    if (this.menuEl) this.closeMenu();
-    else this.openMenu(items);
-  }
-
-  private openMenu(items: PetMenuItem[]): void {
-    if (!this.petEl) return;
-    const { root } = createShadowHost('fwa-pet-host');
-    root.querySelector('.fwa-pet-menu')?.remove();
-
-    const menu = el('div', { class: 'fwa-pet-menu' });
-    for (const item of items) {
-      const btn = el('button', { class: 'fwa-pet-menu-item', text: item.label });
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.closeMenu();
-        item.onClick();
-      });
-      menu.appendChild(btn);
-    }
-
-    // Measure the real menu height before positioning. The menu can grow as
-    // new Pet actions are added, so a fixed height estimate can place it past
-    // the viewport edge.
-    menu.style.visibility = 'hidden';
-    root.appendChild(menu);
-    const rect = this.petEl.getBoundingClientRect();
-    const menuHeight = menu.offsetHeight;
-    const menuWidth = menu.offsetWidth;
-    const spaceBelow = window.innerHeight - rect.bottom - 8;
-    const spaceAbove = rect.top - 8;
-    const top =
-      spaceBelow >= menuHeight || spaceBelow >= spaceAbove
-        ? Math.min(rect.bottom + 8, window.innerHeight - menuHeight - 8)
-        : Math.max(8, rect.top - menuHeight - 8);
-    const left =
-      window.innerWidth - rect.left - 8 >= menuWidth
-        ? rect.left
-        : Math.max(8, rect.right - menuWidth);
-    menu.style.top = `${Math.max(8, top)}px`;
-    menu.style.left = `${Math.min(left, window.innerWidth - menuWidth - 8)}px`;
-    menu.style.visibility = '';
-    this.menuEl = menu;
-  }
-
-  private closeMenu(): void {
-    this.menuEl?.remove();
-    this.menuEl = null;
-  }
 }

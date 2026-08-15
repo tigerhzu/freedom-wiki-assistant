@@ -1,0 +1,125 @@
+/* Controls mounted directly into Wiki.js' own dark top header. */
+.fwa-header-color-swatch {
+  align-items: center;
+  appearance: none;
+  background: linear-gradient(135deg, var(--fwa-color-start, #1976d2), var(--fwa-color-end, #1561ac));
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.18);
+  box-sizing: border-box;
+  cursor: pointer;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 22px;
+  margin: 0 10px;
+  padding: 0;
+  width: 28px;
+}
+
+.fwa-header-color-swatch:hover,
+.fwa-header-color-swatch:focus-visible {
+  box-shadow: 0 0 0 2px #54aeff, 0 0 0 3px rgba(0, 0, 0, 0.28);
+  outline: none;
+}
+
+.fwa-header-topology {
+  align-items: center;
+  appearance: none;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  border-radius: 4px;
+  box-sizing: border-box;
+  color: #fff;
+  cursor: pointer;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font: 700 12px/1 system-ui, sans-serif;
+  height: 28px;
+  justify-content: center;
+  margin: 0 8px;
+  min-width: 42px;
+  padding: 0 7px;
+  white-space: nowrap;
+}
+
+.fwa-header-topology:hover,
+.fwa-header-topology:focus-visible {
+  background: #24476d;
+  border-color: #54aeff;
+  outline: none;
+}
+
+.fwa-header-settings {
+  align-items: center;
+  appearance: none;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  border-radius: 4px;
+  box-sizing: border-box;
+  color: #fff;
+  cursor: pointer;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font: 700 12px/1 system-ui, sans-serif;
+  height: 28px;
+  justify-content: center;
+  margin: 0 8px;
+  min-width: 48px;
+  padding: 0 8px;
+  white-space: nowrap;
+}
+
+.fwa-header-settings:hover,
+.fwa-header-settings:focus-visible {
+  background: #24476d;
+  border-color: #54aeff;
+  outline: none;
+}
+
+.fwa-editor-actions {
+  align-items: center;
+  border-right: 1px solid rgba(255, 255, 255, 0.34);
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 8px;
+  margin: 0 20px 0 0;
+  padding-right: 20px;
+}
+
+.fwa-editor-action {
+  background: #30363d;
+  border: 1px solid #8b949e;
+  border-radius: 7px;
+  color: #fff;
+  cursor: pointer;
+  font: 700 14px/1.2 system-ui, sans-serif;
+  min-height: 34px;
+  padding: 7px 14px;
+  white-space: nowrap;
+}
+
+.fwa-editor-action:last-child {
+  background: #24476d;
+  border-color: #54aeff;
+}
+
+.fwa-editor-action:hover,
+.fwa-editor-action:focus-visible {
+  background: #40505f;
+  border-color: #9fceff;
+  color: #fff;
+  outline: none;
+}
+
+.fwa-editor-action:last-child:hover,
+.fwa-editor-action:last-child:focus-visible {
+  background: #2f65a0;
+}
+
+@media (max-width: 900px) {
+  .fwa-editor-action { font-size: 12px; min-height: 31px; padding: 6px 9px; }
+  .fwa-editor-actions { gap: 5px; margin-right: 12px; padding-right: 12px; }
+  .fwa-header-topology { margin-left: 5px; margin-right: 5px; min-width: 38px; padding: 0 5px; }
+  .fwa-header-color-swatch { margin-left: 6px; margin-right: 6px; }
+  .fwa-header-settings { margin-left: 5px; margin-right: 5px; min-width: 44px; padding: 0 5px; }
+}

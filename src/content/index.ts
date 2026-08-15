@@ -102,7 +102,11 @@ async function mount(): Promise<void> {
     features.push(panel);
     mainNav?.setTemplatePanel(panel);
 
-    const aiLayout = new AiLayoutFeature(adapter);
+    const aiLayout = new AiLayoutFeature(
+      adapter,
+      () => hybridPreview.prepareExternalEditorAction(),
+      () => hybridPreview.getVisualSelection(),
+    );
     features.push(aiLayout);
     mainNav?.setAiLayout(aiLayout);
     debug('features mounted');

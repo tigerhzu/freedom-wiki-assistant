@@ -1,6 +1,5 @@
 import { getSettings, saveSettings } from '../shared/storage';
 import type { Settings } from '../shared/types';
-import { exportTemplates, importTemplates } from '../templates/template-service';
 import {
   defaultSidebarGradientEnd,
   mixHex,
@@ -9,6 +8,7 @@ import {
   resolveSidebarGradientEnd,
   SIDEBAR_COLOR_PRESETS,
 } from '../content/sidebar-appearance';
+import { exportFullSettings, importFullSettings } from './settings-backup';
 
 /** Options page logic: bind form ↔ chrome.storage.local settings. */
 
@@ -29,24 +29,6 @@ function flashStatus(msg: string): void {
 
 let settings: Settings;
 let sidebarPersistTimer: number | undefined;
-
-function renderSwatches(): void {
-  const list = $('swatch-list');
-  list.replaceChildren();
-  for (const color of settings.customSwatches) {
-    const dot = document.createElement('button');
-    dot.type = 'button';
-    dot.className = 'swatch';
-    dot.style.background = color;
-    dot.title = `${color}（點擊移除）`;
-    dot.addEventListener('click', () => {
-      settings.customSwatches = settings.customSwatches.filter((c) => c !== color);
-      void persist();
-      renderSwatches();
-    });
-    list.appendChild(dot);
-  }
-}
 
 async function persist(): Promise<void> {
   await saveSettings(settings);
@@ -172,29 +154,11 @@ function bindSidebarColor(): void {
   renderSidebarColor();
 }
 
-function bindCheckbox(id: keyof Settings & string): void {
-  const input = $<HTMLInputElement>(id);
-  input.checked = settings[id] as boolean;
-  input.addEventListener('change', () => {
-    (settings as unknown as Record<string, unknown>)[id] = input.checked;
-    void persist();
-  });
-}
-
 function bindText(id: keyof Settings & string): void {
   const input = $<HTMLInputElement>(id);
   input.value = settings[id] as string;
   input.addEventListener('change', () => {
     (settings as unknown as Record<string, unknown>)[id] = input.value.trim();
-    void persist();
-  });
-}
-
-function bindEditorMode(): void {
-  const select = $<HTMLSelectElement>('editorMode');
-  select.value = settings.editorMode;
-  select.addEventListener('change', () => {
-    settings.editorMode = select.value as Settings['editorMode'];
     void persist();
   });
 }
@@ -230,50 +194,37 @@ function bindFolderStrategy(): void {
   }
 }
 
-async function init(): Promise<void> {
-  settings = await getSettings();
-
-  bindEditorMode();
-  bindCheckbox('enableFormattingMenu');
-  bindCheckbox('enableImageDrop');
-  bindCheckbox('enableClipboardImage');
-  bindCheckbox('debugMode');
-  bindFolderStrategy();
-  bindText('defaultImageFolder');
-  bindText('imageMarkdownFormat');
-  bindText('defaultTextColor');
-  bindAzureSettings();
-  bindSidebarColor();
-  renderSwatches();
-
-  $('addSwatch').addEventListener('click', () => {
-    const input = $<HTMLInputElement>('newSwatch');
-    const v = input.value.trim().toLowerCase();
-    if (!/^#[0-9a-f]{3}([0-9a-f]{3})?$/.test(v)) {
-      flashStatus('色票格式錯誤，請輸入 #rrggbb');
-      return;
-    }
-    if (!settings.customSwatches.includes(v)) {
-      settings.customSwatches.push(v);
-      void persist();
-      renderSwatches();
-    }
-    input.value = '';
-  });
-
-  $('exportTemplates').addEventListener('click', async () => {
-    const json = await exportTemplates();
+async function downloadFullSettings(includeApiKey: boolean): Promise<void> {
+  try {
+    const json = await exportFullSettings({ includeApiKey });
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `fwa-templates-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = includeApiKey
+      ? `fwa-settings-${new Date().toISOString().slice(0, 10)}.json`
+      : `fwa-settings-no-api-key-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    flashStatus('模板已匯出');
-  });
+    flashStatus(includeApiKey ? '完整設定（含 API Key）已匯出' : '完整設定（不含 API Key）已匯出');
+  } catch (err) {
+    flashStatus(`匯出失敗：${err instanceof Error ? err.message : String(err)}`);
+  }
+}
 
-  const pickAndImport = (mode: 'merge' | 'replace') => {
+async function init(): Promise<void> {
+  settings = await getSettings();
+
+  bindFolderStrategy();
+  bindText('defaultImageFolder');
+  bindText('imageMarkdownFormat');
+  bindAzureSettings();
+  bindSidebarColor();
+
+  $('exportFullSettings').addEventListener('click', () => void downloadFullSettings(true));
+  $('exportSettingsWithoutApiKey').addEventListener('click', () => void downloadFullSettings(false));
+
+  $('importFullSettings').addEventListener('click', () => {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'application/json';
@@ -281,16 +232,15 @@ async function init(): Promise<void> {
       const file = input.files?.[0];
       if (!file) return;
       try {
-        const count = await importTemplates(await file.text(), mode);
-        flashStatus(mode === 'replace' ? `已還原 ${count} 個模板` : `已匯入 ${count} 個模板`);
+        const result = await importFullSettings(await file.text());
+        flashStatus(`已還原設定：${result.customerCount} 位客戶、${result.templateCount} 個模板`);
+        window.setTimeout(() => window.location.reload(), 400);
       } catch (err) {
         flashStatus(`匯入失敗：${err instanceof Error ? err.message : String(err)}`);
       }
     });
     input.click();
-  };
-  $('importTemplates').addEventListener('click', () => pickAndImport('merge'));
-  $('restoreTemplates').addEventListener('click', () => pickAndImport('replace'));
+  });
 }
 
 void init();

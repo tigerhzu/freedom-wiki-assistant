@@ -2,15 +2,15 @@
 
 ## 給一般使用者：安裝發行版
 
-1. 到 GitHub 專案的 **Releases** 下載最新版 `Freedom-Wiki-Assistant-v*.zip`。
+1. 到 GitHub 專案的 [Releases](https://github.com/tigerhzu/freedom-wiki-assistant/releases/latest) 下載最新版 `Freedom-Wiki-Assistant-v*.zip`。
 2. 將 ZIP 解壓縮到不會被移動的位置。
 3. 在 Microsoft Edge 開啟 `edge://extensions`，或在 Google Chrome 開啟 `chrome://extensions`。
 4. 開啟「開發人員模式」。
 5. 按「載入解壓縮檔」。
-6. 選取剛才解壓縮後、內含 `manifest.json` 的資料夾。
+6. 選取剛才解壓縮後、內含 `manifest.json` 的資料夾；不要選 ZIP 檔本身。
 7. 進入公司 Wiki 的編輯頁，確認原生頂部列出現 `Classic` 與 `Future`。
 
-日後更新時，下載新版本並解壓縮到新資料夾，再於擴充功能頁按「載入解壓縮檔」選取新資料夾；舊版本可在確認新版本正常後移除。
+日後更新時，下載新版本並解壓縮到新資料夾，再於擴充功能頁按「載入解壓縮檔」選取新資料夾；舊版本可在確認新版本正常後移除。設定頁的完整備份可用來搬移色票、客戶、資料夾、模板與其他本機設定。
 
 ## 給開發者：從原始碼建置
 

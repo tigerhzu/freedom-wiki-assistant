@@ -36,6 +36,15 @@ export interface Customer {
   name: string;
   /** Wiki page path this entry navigates to, e.g. "/docs/clients/example-client". */
   pagePath: string;
+  /** Optional user-created folder. Missing values are treated as「未分類」for older data. */
+  folderId?: string;
+  createdAt: string;
+}
+
+/** A user-created folder used to group customer entries in the 客戶 drawer. */
+export interface CustomerFolder {
+  id: string;
+  name: string;
   createdAt: string;
 }
 
@@ -131,8 +140,9 @@ export const DEFAULT_SETTINGS: Settings = {
   imageMarkdownFormat: '![{name}]({url})',
   defaultTextColor: 'red',
   customSwatches: [],
-  sidebarColor: '',
-  sidebarGradientColor: '',
+  /** Default brand palette for a fresh extension install. */
+  sidebarColor: '#a93d3d',
+  sidebarGradientColor: '#531abc',
   recentFolders: [],
   customersPanelOpen: false,
   petPosition: null,

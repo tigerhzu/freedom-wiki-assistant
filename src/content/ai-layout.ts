@@ -1,16 +1,13 @@
 import type { AiLayoutRequestMessage } from '../shared/messages';
 import type { AiLayoutResponse, AiLayoutResult, AiLayoutUsage } from '../shared/ai-layout-types';
+import type { SelectionInfo } from '../shared/types';
 import type { EditorAdapter } from './editor-adapter';
 import { AI_CHUNK_CHARS, splitMarkdownForAi } from './markdown-chunk';
-import { quickFormat } from './quick-format';
 import { diffLines, isDiffFeasible } from './text-diff';
 import { el, openModal, showLoadingToast, showToast } from './ui';
 
 /**
- * 排版功能的兩個入口，共用同一套「預覽 → 確認 → 寫回編輯器」流程：
- *
- *  - 快速排版（openQuick）：純本機規則，見 quick-format.ts，不呼叫任何 API。
- *  - AI 排版（openAi）：把內容送到背景 service worker（唯一持有 Azure
+ * AI 排版把內容送到背景 service worker（唯一持有 Azure
  *    OpenAI API key 的地方），文章過長時先切塊循序處理。
  *
  * 兩者都讀編輯器的內容（CodeMirror 的 document，不是頁面文字），也都
@@ -133,57 +130,42 @@ function logUsageTotal(usage: AiLayoutUsage | null, chunkTotal: number): void {
 }
 
 export class AiLayoutFeature {
-  constructor(private readonly adapter: EditorAdapter) {}
+  constructor(
+    private readonly adapter: EditorAdapter,
+    private readonly prepareEditor: () => boolean = () => true,
+    private readonly getVisualSelection: () => SelectionInfo | null = () => null,
+  ) {}
 
   detach(): void {
     document.getElementById('fwa-ai-layout-modal-host')?.remove();
   }
 
   /** 有選取就只處理選取範圍，否則處理整篇文章。 */
-  private resolveSource(): LayoutSource | null {
-    const selection = this.adapter.getSelection();
+  private resolveSource(visualSelection: SelectionInfo | null): LayoutSource | null {
+    const whole = this.adapter.getValue();
+    let selection = visualSelection ?? this.adapter.getSelection();
+
+    if (visualSelection && whole.slice(selection.start, selection.end) !== selection.text) {
+      const relocated = whole.indexOf(selection.text);
+      if (relocated < 0 || relocated !== whole.lastIndexOf(selection.text)) return null;
+      selection = { start: relocated, end: relocated + selection.text.length, text: selection.text };
+    }
     if (selection.text.trim() !== '') {
       return {
         text: normalizeNewlines(selection.text),
         target: { mode: 'selection', start: selection.start, end: selection.end, text: selection.text },
       };
     }
-    const whole = this.adapter.getValue();
     if (whole.trim() === '') return null;
     return { text: normalizeNewlines(whole), target: { mode: 'document' } };
-  }
-
-  /* ────────────────────────── 快速排版（本機） ────────────────────────── */
-
-  openQuick(): void {
-    const source = this.resolveSource();
-    if (!source) {
-      showToast('目前頁面沒有內容可以排版', 'error');
-      return;
-    }
-
-    const formatted = quickFormat(source.text);
-    if (formatted === source.text) {
-      showToast('快速排版：空行與間距已經是整理過的狀態，沒有需要調整的地方', 'info');
-      return;
-    }
-
-    this.showReviewModal({
-      title: '快速排版預覽（本機規則，未呼叫 AI；確認後才會寫入編輯器，不會自動儲存）',
-      original: source.text,
-      target: source.target,
-      result: {
-        formatted_content: formatted,
-        changes: ['本機規則：統一區塊之間的空行、標題後空白、行尾空白；程式碼區塊與 HTML 區塊內部未變動'],
-        warnings: [],
-      },
-    });
   }
 
   /* ────────────────────────────── AI 排版 ────────────────────────────── */
 
   async openAi(): Promise<void> {
-    const source = this.resolveSource();
+    const visualSelection = this.getVisualSelection();
+    if (!this.prepareEditor()) return;
+    const source = this.resolveSource(visualSelection);
     if (!source) {
       showToast('目前頁面沒有內容可以排版', 'error');
       return;

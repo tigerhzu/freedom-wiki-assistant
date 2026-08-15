@@ -37,6 +37,8 @@ interface EditorOps {
   setSelection(start: number, end: number): void;
   replaceSelection(v: string): void;
   insertAtCursor(v: string): void;
+  undo(): void;
+  redo(): void;
   focus(): void;
 }
 
@@ -69,6 +71,8 @@ function cm5Ops(target: HTMLElement): EditorOps {
     },
     replaceSelection: (v) => doc().replaceSelection(v, 'end'),
     insertAtCursor: (v) => doc().replaceSelection(v, 'end'),
+    undo: () => doc().undo(),
+    redo: () => doc().redo(),
     focus: () => cm.focus(),
   };
 }
@@ -91,6 +95,8 @@ function cm6Ops(target: HTMLElement): EditorOps {
     setSelection: (s, e) => view.dispatch({ selection: { anchor: s, head: e } }),
     replaceSelection: (v) => view.dispatch(view.state.replaceSelection(v)),
     insertAtCursor: (v) => view.dispatch(view.state.replaceSelection(v)),
+    undo: () => dispatchHistoryKey(view, 'z'),
+    redo: () => dispatchHistoryKey(view, 'z', true),
     focus: () => view.focus(),
   };
 }
@@ -128,6 +134,8 @@ function monacoOps(target: HTMLElement): EditorOps {
     },
     replaceSelection: (v) => ed.executeEdits('fwa', [{ range: ed.getSelection(), text: v }]),
     insertAtCursor: (v) => ed.executeEdits('fwa', [{ range: ed.getSelection(), text: v }]),
+    undo: () => ed.trigger('fwa', 'undo', null),
+    redo: () => ed.trigger('fwa', 'redo', null),
     focus: () => ed.focus(),
   };
 }
@@ -162,8 +170,30 @@ function aceOps(target: HTMLElement): EditorOps {
     },
     replaceSelection: (v) => ed.insert(v),
     insertAtCursor: (v) => ed.insert(v),
+    undo: () => ed.undo(),
+    redo: () => ed.redo(),
     focus: () => ed.focus(),
   };
+}
+
+/** CodeMirror 6 exposes history through its keymap rather than a public
+ * `undo()` method. Dispatching the same keyboard gesture keeps this bridge
+ * compatible with whichever history extension Wiki.js configured. */
+function dispatchHistoryKey(view: any, key: 'z', shiftKey = false): void {
+  view.focus();
+  const target = view.contentDOM ?? view.dom;
+  const isMac = /Mac|iPhone|iPad|iPod/i.test(
+    navigator.platform || navigator.userAgent,
+  );
+  target?.dispatchEvent(new KeyboardEvent('keydown', {
+    key,
+    code: 'KeyZ',
+    ctrlKey: !isMac,
+    metaKey: isMac,
+    shiftKey,
+    bubbles: true,
+    cancelable: true,
+  }));
 }
 
 interface PagePathResult {
@@ -282,6 +312,12 @@ async function handleRequest(node: HTMLElement): Promise<void> {
         break;
       case 'insertAtCursor':
         ops.insertAtCursor(String(value));
+        break;
+      case 'undo':
+        ops.undo();
+        break;
+      case 'redo':
+        ops.redo();
         break;
       case 'focus':
         ops.focus();

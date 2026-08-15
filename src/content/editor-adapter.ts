@@ -18,6 +18,9 @@ export interface EditorAdapter {
   setSelection(start: number, end: number): void;
   replaceSelection(value: string): void;
   insertAtCursor(value: string): void;
+  /** Undo/redo the editor's own history without requiring its UI to be focused. */
+  undo(): boolean;
+  redo(): boolean;
   focus(): void;
   notifyChange(): void;
 }
@@ -61,6 +64,16 @@ export class TextareaAdapter implements EditorAdapter {
 
   insertAtCursor(value: string): void {
     this.replaceSelection(value);
+  }
+
+  undo(): boolean {
+    this.el.focus();
+    return document.execCommand('undo');
+  }
+
+  redo(): boolean {
+    this.el.focus();
+    return document.execCommand('redo');
   }
 
   focus(): void {
@@ -111,6 +124,20 @@ export class BridgeAdapter implements EditorAdapter {
 
   insertAtCursor(value: string): void {
     bridgeCall('insertAtCursor', { kind: this.kind, value });
+  }
+
+  undo(): boolean {
+    return this.historyCommand('undo');
+  }
+
+  redo(): boolean {
+    return this.historyCommand('redo');
+  }
+
+  private historyCommand(command: 'undo' | 'redo'): boolean {
+    const before = this.getValue();
+    bridgeCall(command, { kind: this.kind });
+    return this.getValue() !== before;
   }
 
   focus(): void {
