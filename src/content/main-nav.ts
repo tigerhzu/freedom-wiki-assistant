@@ -40,12 +40,34 @@ import { createShadowHost, el, openModal, showToast } from './ui';
 
 const TOP_CONTROLS_STYLE_ID = 'fwa-editor-actions-style';
 
+function stopTopControlPointerEvent(event: Event): void {
+  // Keep Wiki.js toolbar handlers from consuming the gesture first.
+  event.stopPropagation();
+}
+
 function ensureTopControlsStyle(): void {
   if (document.getElementById(TOP_CONTROLS_STYLE_ID)) return;
   const style = document.createElement('style');
   style.id = TOP_CONTROLS_STYLE_ID;
   style.textContent = editorActionsCss;
   document.head.appendChild(style);
+}
+
+function isDarkHeaderBackground(backgroundColor: string): boolean {
+  const match = backgroundColor.match(/rgba?\(([^)]+)\)/i);
+  if (!match) return false;
+
+  const channels = match[1].split(/[,\s/]+/).filter(Boolean).map(Number);
+  if (channels.length < 3 || channels.slice(0, 3).some((channel) => !Number.isFinite(channel))) {
+    return false;
+  }
+
+  const alpha = channels[3] ?? 1;
+  if (!Number.isFinite(alpha) || alpha < 0.25) return false;
+
+  const [red, green, blue] = channels;
+  const luminance = (red * 0.2126 + green * 0.7152 + blue * 0.0722) / 255;
+  return luminance < 0.45;
 }
 
 /**
@@ -78,6 +100,7 @@ export class MainNav {
   private editorActions: HTMLElement | null = null;
   private topControlsObserver: MutationObserver | null = null;
   private topControlsScheduled = false;
+  private topControlsHost: HTMLElement | null = null;
   private draggingCustomerId: string | null = null;
   /**
    * Which customers are currently expanded, by branch key. Kept in memory
@@ -114,6 +137,7 @@ export class MainNav {
     this.pet.attach(() => this.onCustomersClick());
     ensureTopControlsStyle();
     this.mountTopControls();
+    window.addEventListener('resize', () => this.scheduleTopControlsMount());
     this.topControlsObserver = new MutationObserver(() => this.scheduleTopControlsMount());
     this.topControlsObserver.observe(document.documentElement, { childList: true, subtree: true });
     void this.restoreExpandedState();
@@ -129,85 +153,207 @@ export class MainNav {
   }
 
   private mountTopControls(): void {
-    this.mountTopologyControl();
     this.mountSidebarColorControl();
+    this.mountTopologyControl();
     this.mountSettingsControl();
     this.mountEditorActions();
   }
 
   private mountTopologyControl(): void {
-    if (this.topologyControl?.isConnected) return;
     const header = this.findTopHeader();
     if (!header) return;
+    const { host } = this.getTopHeaderMount(header);
 
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'fwa-header-topology';
-    button.textContent = '拓譜';
-    button.title = '頁面拓譜圖';
-    button.setAttribute('aria-label', '頁面拓譜圖');
-    button.addEventListener('click', () => openCurrentPageTopology());
+    const button = this.topologyControl ?? document.createElement('button');
+    if (!this.topologyControl) {
+      button.type = 'button';
+      button.className = 'fwa-header-topology';
+      button.textContent = '拓譜';
+      button.title = '頁面拓譜圖';
+      button.setAttribute('aria-label', '頁面拓譜圖');
+      button.addEventListener('pointerdown', stopTopControlPointerEvent);
+      button.addEventListener('mousedown', stopTopControlPointerEvent);
+      button.addEventListener('click', (event) => {
+        // Wiki.js attaches click handlers to the surrounding toolbar as well.
+        // Keep this control from being reinterpreted as a native toolbar click.
+        stopTopControlPointerEvent(event);
+        try {
+          openCurrentPageTopology();
+        } catch (error) {
+          this.reportTopControlError('頁面拓譜圖', error);
+        }
+      });
+      this.topologyControl = button;
+    }
 
-    const title = header.querySelector<HTMLElement>('.v-toolbar__title, .toolbar-title, h1, a');
-    const host = title?.parentElement ?? header;
-    if (title?.nextSibling) host.insertBefore(button, title.nextSibling);
-    else host.appendChild(button);
-    this.topologyControl = button;
+    this.placeAfter(host, button, this.sidebarColorControl);
   }
 
   private findTopHeader(): HTMLElement | null {
-    return Array.from(document.querySelectorAll<HTMLElement>('header, [role="banner"], .v-toolbar'))
-      .filter((element) => {
+    const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+    const candidates = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        'header.nav-header, .v-app-bar, header, [role="banner"], .v-toolbar',
+      ),
+    )
+      .map((element) => {
         const rect = element.getBoundingClientRect();
-        return rect.top <= 4 && rect.height >= 32 && rect.height <= 96 && rect.width >= window.innerWidth * 0.5;
+        const style = window.getComputedStyle(element);
+        const className = String(element.className);
+        let score = 0;
+
+        if (element.matches('header.nav-header, .v-app-bar')) score += 100;
+        if (isDarkHeaderBackground(style.backgroundColor) || /\b(?:black|theme--dark)\b/i.test(className)) {
+          score += 80;
+        }
+        if (style.position === 'fixed' || style.position === 'sticky') score += 25;
+        if (element.querySelector('.v-toolbar__content')) score += 15;
+        if (element.querySelector('.v-toolbar__title, .toolbar-title')) score += 15;
+        if (element.querySelector('input, [aria-label*="search" i]')) score += 10;
+        if (/breadcrumb|subheader|page-header|toolbar--dense|grey lighten/i.test(className)) score -= 80;
+
+        score -= Math.max(0, rect.top);
+        return { element, rect, score };
       })
-      .sort((a, b) => {
-        const aRect = a.getBoundingClientRect();
-        const bRect = b.getBoundingClientRect();
-        return aRect.top - bRect.top || bRect.width - aRect.width;
-      })[0] ?? null;
+      .filter(({ rect }) => {
+        return (
+          rect.top <= 8 &&
+          rect.bottom >= 32 &&
+          rect.height >= 32 &&
+          rect.height <= 128 &&
+          rect.width >= viewportWidth * 0.5
+        );
+      })
+      .sort((a, b) => b.score - a.score || a.rect.top - b.rect.top || b.rect.width - a.rect.width);
+
+    return candidates[0]?.element ?? null;
+  }
+
+  private getTopHeaderMount(header: HTMLElement): {
+    title: HTMLElement | null;
+    host: HTMLElement;
+  } {
+    // Wiki.js renders the site title inside a nested .v-toolbar__content.
+    // Do not use a generic <a> fallback here: on an early SPA render that can
+    // be a breadcrumb link from the light page toolbar instead of the title.
+    const title = header.querySelector<HTMLElement>('.v-toolbar__title, .toolbar-title, h1');
+    const toolbarContent =
+      Array.from(header.children).find(
+        (child): child is HTMLElement =>
+          child instanceof HTMLElement && child.classList.contains('v-toolbar__content'),
+      ) ?? header;
+    const mountParent = title?.parentElement ?? toolbarContent;
+    const host = this.ensureTopControlsHost(mountParent, title);
+    if (title) title.classList.add('fwa-header-title');
+    return { title, host };
+  }
+
+  /**
+   * Mount the controls in the same flex row as Wiki.js' title. This lets the
+   * title shrink with an ellipsis when the viewport is narrow, instead of
+   * putting a fixed overlay on top of the search column.
+   */
+  private ensureTopControlsHost(parent: HTMLElement, title: HTMLElement | null): HTMLElement {
+    const host = this.topControlsHost ?? document.createElement('div');
+    if (!this.topControlsHost) {
+      host.className = 'fwa-header-controls-host';
+      host.setAttribute('aria-label', 'Freedom Wiki Assistant 上方控制項');
+      for (const control of [this.sidebarColorControl, this.topologyControl, this.settingsControl]) {
+        if (control) host.appendChild(control);
+      }
+      this.topControlsHost = host;
+    }
+
+    if (host.parentElement !== parent) {
+      const afterTitle = title?.parentElement === parent ? title.nextSibling : null;
+      parent.insertBefore(host, afterTitle);
+    } else if (title?.parentElement === parent && host.previousElementSibling !== title) {
+      parent.insertBefore(host, title.nextSibling);
+    }
+    return host;
+  }
+
+  private placeAfter(host: HTMLElement, node: HTMLElement, reference: HTMLElement | null): void {
+    const anchor = reference?.parentElement === host ? reference : null;
+    if (!anchor) {
+      if (node.parentElement !== host) host.appendChild(node);
+      return;
+    }
+
+    if (node.parentElement === host && node.previousElementSibling === anchor) return;
+    host.insertBefore(node, anchor.nextSibling);
+  }
+
+  private placeAtStart(host: HTMLElement, node: HTMLElement): void {
+    if (node.parentElement === host && node === host.firstElementChild) return;
+    host.insertBefore(node, host.firstElementChild);
   }
 
   private mountSidebarColorControl(): void {
-    if (this.sidebarColorControl?.isConnected) return;
     const header = this.findTopHeader();
     if (!header) return;
+    const { host } = this.getTopHeaderMount(header);
 
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'fwa-header-color-swatch';
-    button.title = '調整左側導覽列顏色';
-    button.setAttribute('aria-label', '調整左側導覽列顏色');
-    button.addEventListener('click', () => void this.openSidebarColorModal());
+    const button = this.sidebarColorControl ?? document.createElement('button');
+    if (!this.sidebarColorControl) {
+      button.type = 'button';
+      button.className = 'fwa-header-color-swatch';
+      button.title = '調整左側導覽列顏色';
+      button.setAttribute('aria-label', '調整左側導覽列顏色');
+      button.addEventListener('pointerdown', stopTopControlPointerEvent);
+      button.addEventListener('mousedown', stopTopControlPointerEvent);
+      button.addEventListener('click', (event) => {
+        stopTopControlPointerEvent(event);
+        void this.openSidebarColorModal().catch((error: unknown) => {
+          this.reportTopControlError('左側顏色設定', error);
+        });
+      });
+      this.sidebarColorControl = button;
+    }
 
-    const title = header.querySelector<HTMLElement>('.v-toolbar__title, .toolbar-title, h1, a');
-    const host = title?.parentElement ?? header;
-    host.insertBefore(button, title?.nextSibling ?? host.firstChild);
-    this.sidebarColorControl = button;
+    this.placeAtStart(host, button);
     void this.refreshSidebarColorControl();
   }
 
   private mountSettingsControl(): void {
-    if (this.settingsControl?.isConnected) return;
     const header = this.findTopHeader();
     if (!header) return;
+    const { title, host } = this.getTopHeaderMount(header);
 
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'fwa-header-settings';
-    button.textContent = '設定';
-    button.title = '開啟 Freedom Wiki Assistant 完整設定';
-    button.setAttribute('aria-label', '開啟 Freedom Wiki Assistant 完整設定');
-    button.addEventListener('click', () => {
-      void sendMessage({ type: 'fwa:open-settings' });
-    });
+    const button = this.settingsControl ?? document.createElement('button');
+    if (!this.settingsControl) {
+      button.type = 'button';
+      button.className = 'fwa-header-settings';
+      button.textContent = '設定';
+      button.title = '開啟 Freedom Wiki Assistant 完整設定';
+      button.setAttribute('aria-label', '開啟 Freedom Wiki Assistant 完整設定');
+      button.addEventListener('pointerdown', stopTopControlPointerEvent);
+      button.addEventListener('mousedown', stopTopControlPointerEvent);
+      button.addEventListener('click', (event) => {
+        stopTopControlPointerEvent(event);
+        void this.openSettingsPage();
+      });
+      this.settingsControl = button;
+    }
 
-    const title = header.querySelector<HTMLElement>('.v-toolbar__title, .toolbar-title, h1, a');
-    const host = title?.parentElement ?? header;
-    const anchor = this.topologyControl ?? this.sidebarColorControl ?? title;
-    if (anchor?.parentElement === host && anchor.nextSibling) host.insertBefore(button, anchor.nextSibling);
-    else host.appendChild(button);
-    this.settingsControl = button;
+    const anchor =
+      (this.topologyControl?.parentElement === host ? this.topologyControl : null) ??
+      (this.sidebarColorControl?.parentElement === host ? this.sidebarColorControl : null) ??
+      title;
+    this.placeAfter(host, button, anchor);
+  }
+
+  private async openSettingsPage(): Promise<void> {
+    try {
+      const response = (await sendMessage({ type: 'fwa:open-settings' })) as
+        | { ok?: boolean; error?: string }
+        | undefined;
+      if (response?.ok === false) {
+        throw new Error(response.error || '設定頁無法開啟');
+      }
+    } catch (error) {
+      this.reportTopControlError('設定頁', error);
+    }
   }
 
   private async refreshSidebarColorControl(): Promise<void> {
@@ -218,6 +364,11 @@ export class MainNav {
     const secondary = resolveSidebarGradientEnd(primary, settings.sidebarGradientColor);
     button.style.setProperty('--fwa-color-start', primary);
     button.style.setProperty('--fwa-color-end', secondary);
+  }
+
+  private reportTopControlError(label: string, error: unknown): void {
+    console.error(`[FWA] ${label}開啟失敗`, error instanceof Error ? error.message : error);
+    showToast(`${label}暫時無法開啟，請重新整理頁面後再試。`, 'error');
   }
 
   private mountEditorActions(): void {

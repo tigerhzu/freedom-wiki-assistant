@@ -14,6 +14,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         background: resolve(__dirname, 'src/background/service-worker.ts'),
+        onboarding: resolve(__dirname, 'src/onboarding/onboarding.html'),
         settings: resolve(__dirname, 'src/settings/settings.html'),
       },
       output: {

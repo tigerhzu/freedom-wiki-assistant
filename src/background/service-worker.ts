@@ -1,5 +1,9 @@
 import { AiLayoutError, runAiLayout } from './ai-layout-service';
-import type { AiLayoutRequestMessage, RuntimeMessage } from '../shared/messages';
+import type {
+  AiLayoutRequestMessage,
+  OpenOnboardingResponse,
+  RuntimeMessage,
+} from '../shared/messages';
 import { getSettings } from '../shared/storage';
 import type { AiLayoutResponse } from '../shared/ai-layout-types';
 import { seedDefaultTemplatesIfEmpty } from '../templates/template-service';
@@ -33,10 +37,60 @@ async function handleAiLayoutRequest(message: AiLayoutRequestMessage): Promise<A
   }
 }
 
-chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResponse) => {
+async function handleOpenOnboarding(): Promise<OpenOnboardingResponse> {
+  const onboardingUrl = chrome.runtime.getURL('src/onboarding/onboarding.html');
+
+  try {
+    const existingTabs = await chrome.tabs.query({ url: onboardingUrl });
+    const existing = existingTabs.find((tab) => tab.id !== undefined);
+    if (existing?.id !== undefined) {
+      await chrome.tabs.update(existing.id, { active: true });
+      if (existing.windowId !== undefined) {
+        try {
+          await chrome.windows.update(existing.windowId, { focused: true });
+        } catch {
+          // Activating the tab is sufficient when window focus is blocked.
+        }
+      }
+      return { ok: true };
+    }
+  } catch {
+    // If URL lookup is unavailable, still try creating the dedicated page.
+  }
+
+  try {
+    const created = await chrome.tabs.create({ url: onboardingUrl, active: true });
+    if (created.id !== undefined) return { ok: true };
+  } catch {
+    // Fall through to the actionable message below.
+  }
+
+  return {
+    ok: false,
+    error: '無法開啟首次登入提示分頁，請重新整理後再試。',
+  };
+}
+
+chrome.runtime.onMessage.addListener((message: RuntimeMessage, sender, sendResponse) => {
   switch (message.type) {
     case 'fwa:open-settings':
-      void chrome.runtime.openOptionsPage();
+      void chrome.runtime
+        .openOptionsPage()
+        .then(() => sendResponse({ ok: true }))
+        .catch((error: unknown) =>
+          sendResponse({
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        );
+      return true;
+    case 'fwa:open-onboarding':
+      void handleOpenOnboarding().then(sendResponse);
+      return true;
+    case 'fwa:close-onboarding':
+      if (sender.tab?.id !== undefined) {
+        void chrome.tabs.remove(sender.tab.id).catch(() => undefined);
+      }
       sendResponse({ ok: true });
       return false;
     case 'fwa:open-tab': {

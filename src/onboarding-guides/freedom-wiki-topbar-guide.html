@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Freedom Wiki Assistant｜上方快捷功能說明</title>
+<style>
+:root{
+  --bg:#f5f7fb;--surface:#fff;--ink:#172033;--muted:#667085;--line:#e5e9f0;
+  --blue:#2387d9;--dark:#05070a;--red:#d85b63;--shadow:0 18px 42px rgba(15,23,42,.10)
+}
+*{box-sizing:border-box} html,body{margin:0;min-height:100%}
+body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft JhengHei",sans-serif;color:var(--ink);background:var(--bg)}
+.page{max-width:1180px;margin:0 auto;padding:28px 22px 64px}
+.demo{border:1px solid var(--line);border-radius:22px;overflow:hidden;background:#fff;box-shadow:var(--shadow)}
+.topbar{height:86px;background:#030405;display:flex;align-items:center;gap:18px;padding:0 22px;color:#fff;position:relative}
+.brand{font-size:18px;font-weight:700;white-space:nowrap}
+
+.three-arrows{
+  position:absolute;
+  left:8px;
+  right:8px;
+  top:2px;
+  height:24px;
+  display:grid;
+  grid-template-columns:34px 1fr 1fr;
+  align-items:end;
+  pointer-events:none;
+  z-index:6;
+}
+.mini-arrow{
+  width:16px;
+  height:24px;
+  justify-self:center;
+  opacity:.82;
+  animation:miniBounce 1.15s ease-in-out infinite;
+}
+.mini-arrow path{
+  fill:none;
+  stroke:var(--red);
+  stroke-width:2;
+  stroke-linecap:round;
+}
+.mini-arrow polygon{fill:var(--red)}
+.mini-arrow.a2{animation-delay:.12s}
+.mini-arrow.a3{animation-delay:.24s}
+@keyframes miniBounce{
+  0%,100%{transform:translateY(0)}
+  50%{transform:translateY(5px)}
+}
+@media(prefers-reduced-motion:reduce){
+  .mini-arrow{animation:none}
+}
+
+.control-group{position:relative;display:flex;align-items:center;gap:10px;padding:28px 9px 7px;border:1px solid rgba(255,255,255,.08);border-radius:10px;background:rgba(255,255,255,.03)}
+.control{position:relative;height:34px;min-width:44px;border:1px solid #3a3f47;border-radius:6px;background:#121417;color:#fff;display:flex;align-items:center;justify-content:center;padding:0 12px;font-size:13px;cursor:pointer;transition:.16s ease}
+.control:hover,.control:focus-visible{background:#20252c;border-color:#6f7a88;transform:translateY(-2px);outline:none}
+.color-btn{width:34px;min-width:34px;padding:0}
+.color-chip{width:24px;height:22px;border-radius:3px;background:linear-gradient(135deg,#7a2d8d 0%,#5226bb 55%,#e66a83 100%);border:1px solid rgba(255,255,255,.35)}
+.tooltip{position:absolute;top:calc(100% + 12px);left:50%;transform:translateX(-50%) translateY(-4px);width:210px;padding:10px 12px;border-radius:10px;background:#101828;color:#fff;font-size:12px;line-height:1.55;opacity:0;pointer-events:none;transition:.16s ease;z-index:20;box-shadow:0 12px 28px rgba(0,0,0,.24)}
+.tooltip:before{content:"";position:absolute;left:50%;bottom:100%;transform:translateX(-50%);border-width:7px;border-style:solid;border-color:transparent transparent #101828 transparent}
+.control:hover .tooltip,.control:focus-visible .tooltip{opacity:1;transform:translateX(-50%) translateY(0)}
+.search{margin-left:52px;flex:1;max-width:520px;height:42px;border-radius:22px;background:#222;color:#b8bec7;display:flex;align-items:center;padding:0 18px;font-size:14px}
+.fake-icons{margin-left:auto;display:flex;gap:20px;color:#d6dae0;font-size:17px}
+
+.shell{display:grid;grid-template-columns:210px 1fr;min-height:560px}
+.side{background:linear-gradient(180deg,#a42e5b,#5522c7);color:#fff;padding:20px 16px}
+.side .nav{padding:11px 12px;margin:5px 0;border-radius:8px;font-size:13px;opacity:.95}.side .nav.active{background:rgba(255,255,255,.16)}
+.main{background:#fff;padding:30px 38px}.page-title{font-size:23px;margin-bottom:26px;color:#4b5563}.content-card{border-top:1px solid var(--line);padding-top:18px}
+.content-card h2{font-size:28px;color:#1b72c4;margin:0 0 12px;border-bottom:2px solid #5aa7ef;padding-bottom:6px}
+.line{height:10px;border-radius:999px;background:#e7edf4;margin:14px 0}.line.w1{width:45%}.line.w2{width:62%}.line.w3{width:35%}
+.hint{margin-top:22px;padding:16px 18px;border-left:4px solid var(--blue);background:#eef7ff;border-radius:4px 12px 12px 4px;color:#475467;font-size:14px}
+.legend{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:22px}
+.legend-item{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px;transition:.16s ease;cursor:pointer}
+.legend-item:hover{transform:translateY(-3px);box-shadow:0 10px 24px rgba(15,23,42,.08);border-color:#bfd7ee}
+.legend-item b{display:block;margin-bottom:5px;font-size:14px}.legend-item span{display:block;color:var(--muted);font-size:12px;line-height:1.6}
+.toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,18px);opacity:0;background:#101828;color:#fff;padding:10px 14px;border-radius:10px;font-size:12px;transition:.18s ease;z-index:100;pointer-events:none}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+@media(max-width:850px){.brand{font-size:14px}.search{display:none}.shell{grid-template-columns:150px 1fr}.main{padding:24px}.legend{grid-template-columns:1fr}}
+@media(max-width:620px){.page{padding:12px}.topbar{gap:10px;padding:0 12px;overflow:visible}.brand{display:none}.control-group{margin-left:0}.fake-icons{display:none}.shell{grid-template-columns:92px 1fr}.side{padding:12px 8px}.side .nav{font-size:11px;padding:9px 7px}.main{padding:18px}.tooltip{width:175px}}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="demo">
+    <div class="topbar">
+      <div class="brand">Freedom Systems Documentation site</div>
+      <div class="control-group">
+        <div class="three-arrows" aria-hidden="true">
+          <svg class="mini-arrow a1" viewBox="0 0 18 24">
+            <path d="M9 2 L9 14"></path><polygon points="4,12 9,21 14,12"></polygon>
+          </svg>
+          <svg class="mini-arrow a2" viewBox="0 0 18 24">
+            <path d="M9 2 L9 14"></path><polygon points="4,12 9,21 14,12"></polygon>
+          </svg>
+          <svg class="mini-arrow a3" viewBox="0 0 18 24">
+            <path d="M9 2 L9 14"></path><polygon points="4,12 9,21 14,12"></polygon>
+          </svg>
+        </div>
+        <button class="control color-btn" data-key="color" aria-label="顏色">
+          <span class="color-chip"></span>
+          <span class="tooltip">調整介面顏色。點一下可切換或選擇你偏好的配色。</span>
+        </button>
+        <button class="control" data-key="topology">
+          拓譜
+          <span class="tooltip">開啟頁面拓譜，用節點方式查看目前 Wiki 頁面之間的關係。</span>
+        </button>
+        <button class="control" data-key="settings">
+          設定
+          <span class="tooltip">開啟 Freedom Wiki Assistant 設定，調整相關功能與個人化選項。</span>
+        </button>
+      </div>
+      <div class="search">⌕&nbsp;&nbsp;Search...</div>
+      <div class="fake-icons">◇　◎　●</div>
+    </div>
+
+    <div class="shell">
+      <aside class="side">
+        <div class="nav active">⌂　Home</div>
+        <div class="nav">⌁　Collaboration</div>
+        <div class="nav">●　CSM</div>
+        <div class="nav">⚒　Engineering</div>
+        <div class="nav">≡　PM</div>
+        <div class="nav">⌕　Presale</div>
+        <div class="nav">$　Sales</div>
+      </aside>
+
+      <main class="main">
+        <div class="page-title">Freedom Wiki Page</div>
+        <div class="content-card">
+          <h2>Welcome to Freedom Systems Wiki</h2>
+          <div class="line w2"></div><div class="line w1"></div><div class="line w3"></div>
+          <h2 style="margin-top:36px">部門頁面</h2>
+          <div class="line w1"></div><div class="line w3"></div>
+          <div class="hint">將滑鼠移到上方的 <b>顏色、拓譜、設定</b> 按鈕，即可先查看功能提示；點擊按鈕也會顯示簡短說明。</div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <div class="legend">
+    <div class="legend-item" data-target="color"><b>顏色</b><span>快速調整介面配色。</span></div>
+    <div class="legend-item" data-target="topology"><b>拓譜</b><span>查看 Wiki 頁面之間的關聯與導覽結構。</span></div>
+    <div class="legend-item" data-target="settings"><b>設定</b><span>進入設定畫面，調整 Freedom Wiki Assistant 的相關選項。</span></div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -119,6 +119,9 @@ function normalizeSettings(value: unknown): Settings {
   for (const key of stringKeys) {
     if (typeof settings[key] !== 'string') throw new Error(`設定檔的 ${String(key)} 格式不正確`);
   }
+  if (!Number.isInteger(settings.onboardingVersion) || settings.onboardingVersion < 0) {
+    throw new Error('設定檔的 onboardingVersion 格式不正確');
+  }
   if (!['classic', 'hybrid', 'raw'].includes(settings.editorMode)) {
     throw new Error('設定檔的 editorMode 格式不正確');
   }

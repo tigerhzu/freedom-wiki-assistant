@@ -7,6 +7,7 @@ import { FormattingMenu } from './formatting-menu';
 import { HybridPreviewFeature } from './hybrid-preview';
 import { ImageDropHandler } from './image-drop';
 import { MainNav } from './main-nav';
+import { maybeShowOnboarding } from './onboarding';
 import { PageObserver } from './page-observer';
 import { SidebarAppearance } from './sidebar-appearance';
 import { TemplatePanel } from './template-panel';
@@ -120,12 +121,14 @@ function main(): void {
     // Defense in depth: manifest matches should already guarantee this.
     return;
   }
+
   void seedDefaultTemplatesIfEmpty();
 
   mainNav = new MainNav();
   mainNav.attach();
   sidebarAppearance = new SidebarAppearance();
   sidebarAppearance.attach();
+  void maybeShowOnboarding();
 
   void mount();
 

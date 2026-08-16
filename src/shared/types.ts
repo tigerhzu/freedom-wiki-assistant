@@ -114,6 +114,8 @@ export interface Settings {
    */
   petPosition: { xRatio: number; yRatio: number } | null;
   debugMode: boolean;
+  /** Highest first-login onboarding version the user has completed. */
+  onboardingVersion: number;
   /**
    * Azure OpenAI settings for the "AI 排版" feature. Same field shape as the
    * HaloPSA extension's options page (azureEndpoint/azureDeployment/
@@ -147,6 +149,7 @@ export const DEFAULT_SETTINGS: Settings = {
   customersPanelOpen: false,
   petPosition: null,
   debugMode: false,
+  onboardingVersion: 0,
   azureEndpoint: '',
   azureDeployment: '',
   azureApiKey: '',

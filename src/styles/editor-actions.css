@@ -1,4 +1,36 @@
-/* Controls mounted directly into Wiki.js' own dark top header. */
+/* Controls live in Wiki.js' native title-row flex layout. */
+.fwa-header-controls-host {
+  align-items: center;
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 0;
+  height: 100%;
+  min-width: 0;
+  pointer-events: auto;
+  position: relative;
+  z-index: 10;
+  white-space: nowrap;
+}
+
+.fwa-header-title {
+  min-width: 0 !important;
+  flex: 1 1 auto !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.fwa-header-color-swatch,
+.fwa-header-topology,
+.fwa-header-settings {
+  /* Keep the controls above adjacent native toolbar content without leaving
+   * the title-row layout or covering the search column. */
+  position: relative;
+  z-index: 1;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+
 .fwa-header-color-swatch {
   align-items: center;
   appearance: none;

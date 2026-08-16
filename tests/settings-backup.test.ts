@@ -55,6 +55,7 @@ describe('settings-backup', () => {
     settings.sidebarColor = '#a93d3d';
     settings.sidebarGradientColor = '#531abc';
     settings.customSwatches = ['#a1b2c3'];
+    settings.onboardingVersion = 1;
     await saveSettings(settings);
     await saveTemplates([
       {
@@ -87,6 +88,7 @@ describe('settings-backup', () => {
 
     expect((await getSettings()).sidebarColor).toBe('#a93d3d');
     expect((await getSettings()).customSwatches).toEqual(['#a1b2c3']);
+    expect((await getSettings()).onboardingVersion).toBe(1);
     expect((await getTemplates()).map((template) => template.name)).toEqual(['SOP']);
     expect((await getCustomerFolders()).map((folder) => folder.name)).toEqual(['重要客戶']);
     expect((await getCustomers())[0].folderId).toBe('folder-1');

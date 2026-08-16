@@ -4,6 +4,19 @@ export interface OpenSettingsMessage {
   type: 'fwa:open-settings';
 }
 
+export interface OpenOnboardingMessage {
+  type: 'fwa:open-onboarding';
+}
+
+export interface OpenOnboardingResponse {
+  ok: boolean;
+  error?: string;
+}
+
+export interface CloseOnboardingMessage {
+  type: 'fwa:close-onboarding';
+}
+
 export interface OpenTabMessage {
   type: 'fwa:open-tab';
   url: string;
@@ -27,7 +40,12 @@ export interface AiLayoutRequestMessage {
   chunkTotal?: number;
 }
 
-export type RuntimeMessage = OpenSettingsMessage | OpenTabMessage | AiLayoutRequestMessage;
+export type RuntimeMessage =
+  | OpenSettingsMessage
+  | OpenOnboardingMessage
+  | CloseOnboardingMessage
+  | OpenTabMessage
+  | AiLayoutRequestMessage;
 
 export function sendMessage(message: RuntimeMessage): Promise<unknown> {
   return chrome.runtime.sendMessage(message);

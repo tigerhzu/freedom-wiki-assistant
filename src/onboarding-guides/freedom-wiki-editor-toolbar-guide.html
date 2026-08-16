@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Freedom Wiki Assistant｜編輯工具列說明</title>
+<style>
+:root{
+  --bg:#f4f7fb;--surface:#fff;--ink:#172033;--muted:#667085;--line:#e5e9f0;
+  --blue:#1f78d1;--dark:#040608;--red:#d85b63;--shadow:0 18px 42px rgba(15,23,42,.10)
+}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%}
+body{
+  font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft JhengHei",sans-serif;
+  background:var(--bg);color:var(--ink)
+}
+.page{max-width:1220px;margin:0 auto;padding:28px 22px 60px}
+.demo{
+  background:#fff;border:1px solid var(--line);border-radius:22px;overflow:visible;
+  box-shadow:var(--shadow)
+}
+.topbar{
+  height:88px;background:#030405;color:#fff;display:flex;align-items:flex-end;
+  padding:0 22px 10px;gap:18px;position:relative;overflow:visible;z-index:5
+}
+.brand{font-size:17px;font-weight:700;white-space:nowrap;margin-bottom:8px}
+.customer{margin-left:auto;margin-right:34px;margin-bottom:10px;font-size:12px;color:#e5e7eb}
+.edit-tools{
+  position:relative;display:flex;align-items:center;gap:9px;
+  border:1px solid rgba(255,255,255,.08);border-radius:10px;
+  padding:7px 8px;background:rgba(255,255,255,.025)
+}
+.tool{
+  position:relative;height:34px;border:1px solid #3b4149;border-radius:6px;background:#13171c;
+  color:#fff;font:inherit;font-size:12px;padding:0 12px;cursor:pointer;transition:.16s ease
+}
+.tool:hover,.tool:focus-visible{
+  transform:translateY(-2px);background:#20262d;border-color:#697586;outline:none
+}
+.tool.ai{border-color:#4b79a8;background:#183f68}
+.mode-wrap{display:flex;align-items:center;gap:6px;margin-left:5px;padding-left:10px;border-left:1px solid #434852}
+.mode{
+  min-width:57px;height:30px;border-radius:5px;border:1px solid #3b4149;background:#11151a;
+  color:#fff;font-size:11px;font-weight:700;cursor:pointer;transition:.16s ease
+}
+.mode:hover,.mode:focus-visible{transform:translateY(-2px);outline:none}
+.mode.active{background:#116bd8;border-color:#2d8cff}
+.mode.future{border-color:#b64f5b}
+.tooltip{
+  position:absolute;top:calc(100% + 12px);left:50%;transform:translateX(-50%) translateY(-4px);
+  width:220px;background:#101828;color:#fff;border-radius:10px;padding:10px 12px;font-size:12px;
+  line-height:1.55;opacity:0;pointer-events:none;transition:.16s ease;z-index:30;
+  box-shadow:0 12px 28px rgba(0,0,0,.26)
+}
+.tooltip:before{
+  content:"";position:absolute;left:50%;bottom:100%;transform:translateX(-50%);
+  border-width:7px;border-style:solid;border-color:transparent transparent #101828 transparent
+}
+.tooltip-right{
+  left:auto;right:0;transform:translateY(-4px);
+}
+.tooltip-right:before{
+  left:auto;right:18px;transform:none;
+}
+.tooltip-left{
+  left:0;transform:translateY(-4px);
+}
+.tooltip-left:before{
+  left:18px;transform:none;
+}
+.tool:hover .tooltip,.tool:focus-visible .tooltip,
+.mode:hover .tooltip,.mode:focus-visible .tooltip{
+  opacity:1;
+}
+.tool:hover .tooltip:not(.tooltip-right):not(.tooltip-left),
+.tool:focus-visible .tooltip:not(.tooltip-right):not(.tooltip-left),
+.mode:hover .tooltip:not(.tooltip-right):not(.tooltip-left),
+.mode:focus-visible .tooltip:not(.tooltip-right):not(.tooltip-left){
+  transform:translateX(-50%) translateY(0);
+}
+.tool:hover .tooltip-right,.tool:focus-visible .tooltip-right,
+.mode:hover .tooltip-right,.mode:focus-visible .tooltip-right,
+.tool:hover .tooltip-left,.tool:focus-visible .tooltip-left,
+.mode:hover .tooltip-left,.mode:focus-visible .tooltip-left{
+  transform:translateY(0);
+}
+
+/* 4 個跳動箭頭，直接對準紅框中的 4 個控制 */
+.arrow{
+  position:absolute;top:-27px;width:16px;height:24px;pointer-events:none;opacity:.82;
+  animation:bounce 1.12s ease-in-out infinite
+}
+.arrow path{fill:none;stroke:var(--red);stroke-width:2;stroke-linecap:round}
+.arrow polygon{fill:var(--red)}
+.a-template{left:27px}
+.a-ai{left:93px;animation-delay:.10s}
+.a-classic{left:179px;animation-delay:.20s}
+.a-future{left:245px;animation-delay:.30s}
+@keyframes bounce{
+  0%,100%{transform:translateY(0)}
+  50%{transform:translateY(5px)}
+}
+@media(prefers-reduced-motion:reduce){.arrow{animation:none}}
+
+.bluebar{
+  height:40px;background:linear-gradient(180deg,#2781d4,#1b6dbb);
+  display:flex;align-items:center;gap:20px;padding:0 58px;color:#fff;font-weight:700
+}
+.bluebar span{opacity:.95}
+.editor{
+  display:grid;grid-template-columns:1.02fr .98fr;min-height:560px
+}
+.source{
+  background:#1d1f21;color:#e8edf4;padding:20px 28px;position:relative;border-right:1px solid #cfd7e1
+}
+.preview{background:#fff;padding:28px 30px}
+.code{font-family:Consolas,monospace;font-size:13px;line-height:1.65}
+.code .h{font-size:20px;font-weight:800;color:#eef3f9}
+.code .link{color:#e2a24a}
+.code .muted{color:#aeb7c2}
+.preview h1{color:#176fc1;font-size:31px;margin:0 0 16px;border-bottom:2px solid #6bb1ef;padding-bottom:4px}
+.preview p{font-size:14px;color:#475467}
+.notice{
+  margin-top:28px;border-radius:10px;background:#fff3dd;border-left:46px solid #ffb548;
+  min-height:160px;padding:18px;color:#b2510f;font-size:14px;line-height:1.65
+}
+.info{
+  margin-top:22px;border-radius:10px;background:#e6f2fc;border-left:46px solid #5aaef0;
+  padding:14px 18px;color:#315d7d;font-size:13px
+}
+.guide{
+  display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:20px
+}
+.card{
+  background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px;
+  transition:.16s ease;cursor:pointer
+}
+.card:hover{transform:translateY(-3px);box-shadow:0 10px 24px rgba(15,23,42,.08);border-color:#bdd6ef}
+.card b{display:block;font-size:14px;margin-bottom:5px}
+.card span{display:block;color:var(--muted);font-size:12px;line-height:1.6}
+.ai-note{
+  margin-top:15px;padding:13px 15px;border-left:4px solid var(--blue);background:#eef7ff;
+  border-radius:4px 12px 12px 4px;font-size:13px;color:#475467
+}
+.toast{
+  position:fixed;left:50%;bottom:24px;transform:translate(-50%,18px);opacity:0;
+  background:#101828;color:#fff;padding:10px 14px;border-radius:10px;font-size:12px;
+  transition:.18s ease;z-index:100;pointer-events:none
+}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+@media(max-width:920px){
+  .brand,.customer{display:none}.topbar{justify-content:center;padding-left:10px;padding-right:10px}
+  .editor{grid-template-columns:1fr}.source{min-height:390px}.preview{border-top:1px solid var(--line)}
+  .guide{grid-template-columns:1fr 1fr}
+}
+@media(max-width:620px){
+  .page{padding:12px}.edit-tools{transform:scale(.88);transform-origin:center}
+  .guide{grid-template-columns:1fr}.preview{padding:20px}.source{padding:18px}
+}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="demo">
+    <div class="topbar">
+      <div class="brand">Freedom Systems Documentation site</div>
+      <div class="customer">Tiger　tiger@example.com</div>
+
+      <div class="edit-tools">
+        <svg class="arrow a-template" viewBox="0 0 16 24" aria-hidden="true">
+          <path d="M8 2 L8 14"></path><polygon points="3,12 8,21 13,12"></polygon>
+        </svg>
+        <svg class="arrow a-ai" viewBox="0 0 16 24" aria-hidden="true">
+          <path d="M8 2 L8 14"></path><polygon points="3,12 8,21 13,12"></polygon>
+        </svg>
+        <svg class="arrow a-classic" viewBox="0 0 16 24" aria-hidden="true">
+          <path d="M8 2 L8 14"></path><polygon points="3,12 8,21 13,12"></polygon>
+        </svg>
+        <svg class="arrow a-future" viewBox="0 0 16 24" aria-hidden="true">
+          <path d="M8 2 L8 14"></path><polygon points="3,12 8,21 13,12"></polygon>
+        </svg>
+
+        <button class="tool" data-key="template">
+          模板
+          <span class="tooltip tooltip-left">開啟文章模板，搜尋、預覽並把常用內容插入目前文章。</span>
+        </button>
+
+        <button class="tool ai" data-key="ai">
+          AI 排版
+          <span class="tooltip">讓 AI 先產生排版建議。請先查看變更與差異，再決定是否套用；不會自動 Save。</span>
+        </button>
+
+        <div class="mode-wrap">
+          <button class="mode active" data-key="classic">
+            Classic
+            <span class="tooltip tooltip-right">Classic 模式：左側保留 Markdown 編輯，右側可同步查看／編輯內容。</span>
+          </button>
+          <button class="mode future" data-key="future">
+            Future
+            <span class="tooltip tooltip-right">Future 模式：使用較直接的內容編輯方式，也可使用模板與 AI 排版。</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="bluebar">
+      <span>B</span><span>𝘐</span><span>≡</span><span>H#</span><span>x₂</span><span>x²</span><span>☷</span><span>☰</span><span>&lt;&gt;</span>
+    </div>
+
+    <div class="editor">
+            <section class="source">
+        <div class="code">
+          <div class="h"># Tiger / 客戶維運重點</div><br>
+          客戶名稱：Tiger<br>
+          三碼縮寫：TGR<br>
+          <span class="link">[Account Info/Plan](/eng/Customers/Tiger/AccountPlan)</span><br>
+          <span class="link">[ChangeJournal](/eng/Customers/Tiger/ChangeJournal)</span><br><br>
+
+          <span class="muted">## 例行維運</span><br>
+          - 每月 1 號確認監控報告是否已寄出<br>
+          - 重要變更需補上處理日期與窗口紀錄<br>
+          - 若有新設備，記得同步更新 SOP 與資產資訊<br><br>
+
+          <span class="muted">## 對外通知範例</span><br>
+          請先確認維護時間、影響範圍與聯絡窗口。<br>
+          完成後，再補上結果與後續追蹤項目。<br><br>
+
+          <span class="muted">## Review</span><br>
+          [TGR_2026Q1Review](/eng/Customers/Tiger/Review/TGR_2026Q1Review)
+        </div>
+      </section>
+
+            <section class="preview">
+        <h1>Tiger / 客戶維運重點</h1>
+        <p>客戶名稱：Tiger</p>
+        <p>三碼縮寫：TGR</p>
+        <p style="color:#176fc1;text-decoration:underline">Account Info/Plan</p>
+
+        <div class="notice">
+          <b>例行維運提醒</b><br>
+          每月 1 號確認監控報告是否已寄出。<br>
+          重要變更請補上處理日期、影響範圍與窗口紀錄。<br>
+          若有新設備，記得同步更新 SOP 與資產資訊。
+        </div>
+
+        <div class="info">
+          <b>Review</b><br>
+          本頁可集中記錄 Tiger 的維運重點、變更紀錄與固定追蹤項目，方便後續接手與查閱。
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div class="guide">
+    <div class="card" data-target="template"><b>模板</b><span>快速插入既有模板，減少重複輸入。</span></div>
+    <div class="card" data-target="ai"><b>AI 排版</b><span>先產生建議與差異，確認後才套用到編輯器。</span></div>
+    <div class="card" data-target="classic"><b>Classic</b><span>Markdown 與右側內容同步編輯的模式。</span></div>
+    <div class="card" data-target="future"><b>Future</b><span>切換到較直接的內容編輯模式。</span></div>
+  </div>
+
+  <div class="ai-note"><b>AI 使用提醒：</b>AI 排版只會先提出建議。使用者確認後才套用；套用只更新編輯器內容，不代表已經 Save 或 Publish。</div>
+</div>
+
+</body>
+</html>

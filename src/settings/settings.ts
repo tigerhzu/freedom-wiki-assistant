@@ -1,4 +1,5 @@
 import { getSettings, saveSettings } from '../shared/storage';
+import { sendMessage, type OpenOnboardingResponse } from '../shared/messages';
 import type { Settings } from '../shared/types';
 import {
   defaultSidebarGradientEnd,
@@ -29,10 +30,43 @@ function flashStatus(msg: string): void {
 
 let settings: Settings;
 let sidebarPersistTimer: number | undefined;
+let onboardingStatusTimer: number | undefined;
 
 async function persist(): Promise<void> {
   await saveSettings(settings);
   flashStatus('已儲存');
+}
+
+function flashOnboardingStatus(message: string): void {
+  const status = $<HTMLElement>('onboardingStatus');
+  status.textContent = message;
+  window.clearTimeout(onboardingStatusTimer);
+  onboardingStatusTimer = window.setTimeout(() => (status.textContent = ''), 4500);
+}
+
+async function openOnboardingFromSettings(): Promise<void> {
+  try {
+    // Re-read immediately before the reset so every unrelated setting remains
+    // intact. The onboarding page will merge its completion version again on
+    // close.
+    const latest = await getSettings();
+    settings = { ...latest, onboardingVersion: 0 };
+    await saveSettings(settings);
+  } catch (error) {
+    flashOnboardingStatus(`無法重設首次登入提示：${error instanceof Error ? error.message : String(error)}`);
+    return;
+  }
+
+  try {
+    const response = await sendMessage({ type: 'fwa:open-onboarding' }) as OpenOnboardingResponse | undefined;
+    if (response?.ok) {
+      flashOnboardingStatus('已開啟首次登入提示');
+      return;
+    }
+    flashOnboardingStatus(response?.error ?? '已重設首次登入提示，請先開啟或重新整理 Wiki 頁面。');
+  } catch {
+    flashOnboardingStatus('已重設首次登入提示，請先開啟或重新整理 Wiki 頁面。');
+  }
 }
 
 function renderSidebarColor(): void {
@@ -223,6 +257,7 @@ async function init(): Promise<void> {
 
   $('exportFullSettings').addEventListener('click', () => void downloadFullSettings(true));
   $('exportSettingsWithoutApiKey').addEventListener('click', () => void downloadFullSettings(false));
+  $('openOnboarding').addEventListener('click', () => void openOnboardingFromSettings());
 
   $('importFullSettings').addEventListener('click', () => {
     const input = document.createElement('input');

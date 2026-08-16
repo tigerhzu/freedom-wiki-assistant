@@ -378,12 +378,51 @@
 
       .backup-actions button:first-child:hover { background: #246ac9; }
 
+      .onboarding-row {
+        display: flex;
+        min-width: 0;
+        padding: 14px 16px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+        background: #f8faff;
+        border: 1px solid #e3e9f3;
+        border-radius: 12px;
+      }
+
+      .onboarding-row .section-kicker { margin-bottom: 0; }
+
+      .onboarding-row .hint {
+        max-width: 520px;
+        margin-top: 4px;
+      }
+
+      .onboarding-row button {
+        flex: 0 0 auto;
+        color: #ffffff;
+        background: #2f7be5;
+        border-color: #2f7be5;
+        white-space: nowrap;
+      }
+
+      .onboarding-row button:hover { background: #246ac9; }
+
+      .onboarding-status {
+        min-height: 1.4em;
+        margin: 10px 0 0;
+        color: #16803c;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
       @media (max-width: 700px) {
         body { padding: 24px 12px 40px; }
         .settings-card { padding: 20px 18px 22px; border-radius: 15px; }
         .appearance-grid { grid-template-columns: 1fr; gap: 22px; }
         .sidebar-preview { min-height: 174px; }
         .form-row { grid-template-columns: 1fr; gap: 7px; }
+        .onboarding-row { align-items: stretch; flex-direction: column; gap: 12px; }
+        .onboarding-row button { width: 100%; }
       }
 
       @media (max-width: 430px) {
@@ -460,6 +499,18 @@
           <label class="form-row"><span>Azure API Version</span><input type="text" id="azureApiVersion" placeholder="2024-12-01-preview" autocomplete="off" spellcheck="false" /></label>
           <label class="form-row"><span>Azure OpenAI API Key</span><span class="api-key-controls"><input type="password" id="azureApiKey" placeholder="貼上 Azure OpenAI API Key" autocomplete="off" spellcheck="false" /><button id="toggleAzureApiKey" type="button">顯示</button></span></label>
         </div>
+      </section>
+
+      <section class="settings-card">
+        <div class="settings-card-title">首次使用導覽 <span class="english">Onboarding</span></div>
+        <div class="onboarding-row">
+          <div>
+            <div class="section-kicker">重新查看首次登入提示</div>
+            <p id="onboardingHelp" class="hint">再次開啟功能導覽，不會清除客戶、模板、色票或其他設定。</p>
+          </div>
+          <button id="openOnboarding" type="button" aria-describedby="onboardingHelp">開啟首次登入提示</button>
+        </div>
+        <p id="onboardingStatus" class="onboarding-status" role="status" aria-live="polite"></p>
       </section>
 
       <section class="settings-card">
