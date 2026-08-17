@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { findMarkdownTextRanges, findNormalizedTextRange } from '../src/content/visual-selection';
+import {
+  findMarkdownTextRangeCandidates,
+  findMarkdownTextRanges,
+  findNormalizedTextRange,
+} from '../src/content/visual-selection';
 
 describe('findNormalizedTextRange', () => {
   it('maps browser-collapsed whitespace back to exact Markdown offsets', () => {
@@ -65,5 +69,73 @@ describe('findMarkdownTextRanges', () => {
 
   it('refuses ambiguous projected text', () => {
     expect(findMarkdownTextRanges('**重複**\n*重複*', '重複')).toBeNull();
+  });
+
+  it('exposes repeated projected occurrences for DOM-based disambiguation', () => {
+    const source = '第一個手機\n第二個手機';
+    const candidates = findMarkdownTextRangeCandidates(source, '手機');
+
+    expect(candidates).toHaveLength(2);
+    expect(candidates?.map((ranges) => source.slice(ranges[0].start, ranges[0].end))).toEqual([
+      '手機',
+      '手機',
+    ]);
+  });
+
+  it('maps a selection across HTML color and bold Markdown syntax', () => {
+    const source = '2. **設定雲端電話系統**，須<font color="red">設定分機</font> & **手機 (軟體_eVox易熙)** //在 DC01 上收信';
+    const ranges = findMarkdownTextRanges(source, '& 手機 (軟體_eVox易熙) //在 DC01 上收信');
+
+    expect(ranges?.map((range) => source.slice(range.start, range.end))).toEqual([
+      '& ',
+      '手機 (軟體_eVox易熙)',
+      ' //在 DC01 上收信',
+    ]);
+
+    const wider = findMarkdownTextRanges(source, '設定分機 & 手機 (軟體_eVox易熙) //在 DC01 上收信');
+    expect(wider?.map((range) => source.slice(range.start, range.end))).toEqual([
+      '設定分機',
+      ' & ',
+      '手機 (軟體_eVox易熙)',
+      ' //在 DC01 上收信',
+    ]);
+  });
+
+  it('decodes browser-rendered HTML entities before mapping to source', () => {
+    const source = '2. **設定** &amp; <span style="color:red">手機&nbsp;分機</span> &#x1F4DE;';
+    const ranges = findMarkdownTextRanges(source, '設定 & 手機 分機 📞');
+
+    expect(ranges?.map((range) => source.slice(range.start, range.end))).toEqual([
+      '設定',
+      ' &amp; ',
+      '手機&nbsp;分機',
+      ' &#x1F4DE;',
+    ]);
+  });
+
+  it('recognizes additional inline markers without treating the visible syntax as text', () => {
+    const source = '___粗體斜體___ ==醒目== ~~刪除~~';
+    const ranges = findMarkdownTextRanges(source, '粗體斜體 醒目 刪除');
+
+    expect(ranges?.map((range) => source.slice(range.start, range.end))).toEqual([
+      '粗體斜體',
+      '醒目',
+      '刪除',
+    ]);
+  });
+
+  it('keeps an underscore inside an identifier as visible text', () => {
+    const source = '**軟體_eVox易熙**';
+    const ranges = findMarkdownTextRanges(source, '軟體_eVox易熙');
+
+    expect(ranges).toEqual([{ start: 2, end: source.length - 2 }]);
+  });
+
+  it('maps literal Markdown markers when the renderer exposes them as text', () => {
+    const source = '(<font color="purple">窗口</font>會提供分機和手機，並加入**該員工的手機號碼，**才能接收簡訊驗證**)';
+    const selected = '**該員工的手機號碼，**才能接收簡訊驗證**)';
+    const ranges = findMarkdownTextRanges(source, selected);
+
+    expect(ranges?.map((range) => source.slice(range.start, range.end))).toEqual([selected]);
   });
 });

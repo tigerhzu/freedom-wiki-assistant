@@ -8,6 +8,12 @@ Freedom Wiki Assistant 是給 Wiki.js Markdown 編輯頁使用的 Chromium 擴�
 
 最新安裝包請到 [GitHub Releases](https://github.com/tigerhzu/freedom-wiki-assistant/releases/latest) 下載。
 
+## 0.3.1 版本重點
+
+- 修正 Classic 右側與 Future 輸入英文、數字及刪除時的延遲與焦點跳動。
+- 視覺編輯區持續輸入時保持即時反應，停止操作約 0.7 秒後再批次同步回 Markdown。
+- 背景同步不再移動原生 Markdown 編輯器游標或造成畫面捲回頂端。
+
 ## 0.3.0 版本重點
 
 - 編輯頁新增 `Classic`／`Future` 模式切換、`設定` 快速入口，以及可直接在 Wiki 內容上操作的視覺化編輯介面。
@@ -40,12 +46,12 @@ Freedom Wiki Assistant 是給 Wiki.js Markdown 編輯頁使用的 Chromium 擴�
 
 ## Future 視覺化編輯模式
 
-Future 是全螢幕的視覺化編輯模式，讓使用者像直接修改 Wiki 頁面一樣編輯內容；背景會在儲存時自動產生並更新 Markdown。它不是另一個預覽面板：你可以直接在右側頁面內容上修改，不必了解 Markdown 語法。
+Future 是全螢幕的視覺化編輯模式，讓使用者像直接修改 Wiki 頁面一樣編輯內容；每次修改都會即時同步到原生 Markdown，再由 Wiki.js 的原生流程保存。它不是另一個預覽面板：你可以直接在右側頁面內容上修改，不必了解 Markdown 語法。
 
 - 在 Wiki.js 原生 `SAVE / PAGE / CLOSE` 操作列旁，使用 `Classic` 與 `Future` 切換模式。
-- `Classic` 保留原生雙欄 Markdown 介面，右側頁面也能直接編輯；離開右側或按下 `SAVE` 時，修改會同步到左側 Markdown。
+- `Classic` 保留原生雙欄 Markdown 介面，左側 Markdown 與右側頁面會即時同步，右側也能直接編輯。
 - `Future` 顯示全螢幕、可直接點選與輸入的頁面內容，但仍保留原生 `SAVE / PAGE / CLOSE`。
-- Future 中點選 Wiki.js 原生 `SAVE`，會先同步視覺修改至 Markdown，再使用 Wiki.js 原生儲存流程。
+- Future 的文字、貼上、圖片與圖片樣式修改會即時同步至 Markdown；點選 Wiki.js 原生 `SAVE` 後，再使用 Wiki.js 原生儲存流程。
 - 文字反白後按右鍵，可設定字色、字級、粗體、斜體、底線、刪除線、背景標記、程式碼、對齊、縮排、引用與資訊框。
 - 在圖片上按右鍵，可調整大小、對齊、圓角與框線；圖片樣式會保存成相容的 Markdown／HTML。
 - 在 Future 貼上或拖曳圖片，會使用既有 Wiki.js Assets 上傳流程與目前頁面資料夾規則，不會把圖片存成 Base64。

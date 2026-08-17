@@ -17,7 +17,7 @@ Future 會使用 Wiki.js 原生 `SAVE` 按鈕保存。請確認：
 
 - 仍在編輯頁而不是閱讀頁。
 - 沒有圖片正在上傳。
-- 沒有同時在左側 Markdown 編輯器修改內容；若同時修改，為避免覆寫，Future 會停止同步。
+- 如果剛從左側 Markdown 編輯器修改內容，請等右側預覽完成重新同步後再於 Future 繼續輸入。
 
 可以先切回 Classic 確認 Markdown 是否已更新，再按原生 `SAVE`。
 

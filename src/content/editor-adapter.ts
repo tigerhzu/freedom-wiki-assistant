@@ -16,6 +16,8 @@ export interface EditorAdapter {
   getSelection(): SelectionInfo;
   /** Extension to the spec interface: required to restore the caret after edits. */
   setSelection(start: number, end: number): void;
+  /** Replace a source range without focusing or moving the native editor caret. */
+  replaceRange(start: number, end: number, value: string): void;
   replaceSelection(value: string): void;
   insertAtCursor(value: string): void;
   /** Undo/redo the editor's own history without requiring its UI to be focused. */
@@ -23,6 +25,8 @@ export interface EditorAdapter {
   redo(): boolean;
   focus(): void;
   notifyChange(): void;
+  /** Subscribe to changes made through the native editor UI. */
+  subscribe(listener: () => void): () => void;
 }
 
 /* ────────────────────────────── textarea ────────────────────────────── */
@@ -57,6 +61,14 @@ export class TextareaAdapter implements EditorAdapter {
     this.el.setSelectionRange(start, end);
   }
 
+  replaceRange(start: number, end: number, value: string): void {
+    // Visual edits are written to the native Markdown editor in the
+    // background. Preserve its selection so CodeMirror does not scroll to the
+    // changed source line while the user is typing in the rendered document.
+    this.el.setRangeText(value, start, end, 'preserve');
+    this.notifyChange();
+  }
+
   replaceSelection(value: string): void {
     this.el.setRangeText(value, this.el.selectionStart, this.el.selectionEnd, 'end');
     this.notifyChange();
@@ -84,6 +96,15 @@ export class TextareaAdapter implements EditorAdapter {
     this.el.dispatchEvent(new InputEvent('input', { bubbles: true }));
     this.el.dispatchEvent(new Event('change', { bubbles: true }));
   }
+
+  subscribe(listener: () => void): () => void {
+    this.el.addEventListener('input', listener);
+    this.el.addEventListener('change', listener);
+    return () => {
+      this.el.removeEventListener('input', listener);
+      this.el.removeEventListener('change', listener);
+    };
+  }
 }
 
 /* ─────────────── page-bridge adapter (CodeMirror/Monaco/Ace) ─────────────── */
@@ -95,6 +116,9 @@ export class BridgeAdapter implements EditorAdapter {
     readonly kind: EditorKind,
     private readonly el: HTMLElement,
   ) {
+    for (const target of Array.from(document.querySelectorAll<HTMLElement>(`[${TARGET_ATTR}]`))) {
+      if (target !== el) target.removeAttribute(TARGET_ATTR);
+    }
     el.setAttribute(TARGET_ATTR, '1');
   }
 
@@ -116,6 +140,10 @@ export class BridgeAdapter implements EditorAdapter {
 
   setSelection(start: number, end: number): void {
     bridgeCall('setSelection', { kind: this.kind, start, end });
+  }
+
+  replaceRange(start: number, end: number, value: string): void {
+    bridgeCall('replaceRange', { kind: this.kind, start, end, value });
   }
 
   replaceSelection(value: string): void {
@@ -147,6 +175,25 @@ export class BridgeAdapter implements EditorAdapter {
   notifyChange(): void {
     // CodeMirror/Monaco/Ace fire their own change events when edited through
     // their APIs — nothing extra to dispatch here.
+  }
+
+  subscribe(listener: () => void): () => void {
+    const onChange = () => listener();
+    this.el.addEventListener('fwa:editor-change', onChange);
+    // These native events are a useful fallback for editor versions that do
+    // not expose a page-world change hook (and cover CodeMirror 6 input).
+    this.el.addEventListener('input', onChange);
+    this.el.addEventListener('change', onChange);
+    try {
+      bridgeCall('watchChanges', { kind: this.kind });
+    } catch {
+      // The DOM listeners above still provide a best-effort fallback.
+    }
+    return () => {
+      this.el.removeEventListener('fwa:editor-change', onChange);
+      this.el.removeEventListener('input', onChange);
+      this.el.removeEventListener('change', onChange);
+    };
   }
 }
 

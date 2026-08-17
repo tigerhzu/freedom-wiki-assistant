@@ -36,12 +36,24 @@ import {
   type EditResult,
 } from './markdown-format';
 import { createShadowHost, el, showToast } from './ui';
-import { findMarkdownTextRanges, findNormalizedTextRange } from './visual-selection';
+import {
+  findMarkdownTextRangeCandidates,
+  findMarkdownTextRanges,
+  findNormalizedTextRange,
+} from './visual-selection';
 
 const STYLE_ID = 'fwa-hybrid-preview-style';
 const SOURCE_INDEX_ATTR = 'data-fwa-source-index';
 const DIRTY_BLOCK_ATTR = 'data-fwa-visual-dirty';
 const EXACT_SOURCE_ATTR = 'data-fwa-markdown-source';
+// Keep visual typing local while the user is active. Once they pause, the
+// current visual block is flushed as one source edit instead of one edit per
+// character, so Wiki.js never gets a chance to re-render between keystrokes.
+// The rendered DOM is still updated immediately; this delay only controls the
+// background write to the native editor and intentionally groups a short
+// English/number burst into one Wiki.js render.
+const VISUAL_SYNC_DELAY_MS = 700;
+const VISUAL_REFRESH_DELAY_MS = 16;
 type SourceEdit = (text: string, start: number, end: number) => EditResult;
 
 interface VisualSourceSpan {
@@ -50,6 +62,25 @@ interface VisualSourceSpan {
   text: string;
   firstIndex: number;
   lastIndex: number;
+}
+
+interface VisualSelectionPoint {
+  path: number[];
+  offset: number;
+  textOffset: number;
+}
+
+interface VisualSelectionBookmark {
+  start: VisualSelectionPoint;
+  end: VisualSelectionPoint;
+}
+
+interface VisualBlockEdit {
+  index: number;
+  element: HTMLElement;
+  start: number;
+  end: number;
+  replacement: string;
 }
 
 function sourceIndexOf(element: HTMLElement): number | null {
@@ -89,7 +120,13 @@ export class HybridPreviewFeature {
   private observer: MutationObserver | null = null;
   private refreshTimer: number | undefined;
   private renderWaitTimer: number | undefined;
+  private visualSyncTimer: number | undefined;
   private awaitingPreviewRender = false;
+  private unsubscribeAdapterChanges: (() => void) | null = null;
+  private applyingSourceChange = false;
+  private visualComposing = false;
+  private pendingVisualSelection: VisualSelectionBookmark | null = null;
+  private selectionRestoreTimer: number | undefined;
   private contextMenu: HTMLElement | null = null;
   private contextRange: Range | null = null;
   private contextImage: HTMLImageElement | null = null;
@@ -115,6 +152,7 @@ export class HybridPreviewFeature {
     preview.classList.add('fwa-mode-frame');
     this.toolbar = this.buildModeToolbar();
     this.mountToolbarBesideNativeActions();
+    this.unsubscribeAdapterChanges = this.adapter.subscribe(this.onAdapterChange);
 
     this.observer = new MutationObserver(() => {
       if (this.mode === 'raw') return;
@@ -124,7 +162,9 @@ export class HybridPreviewFeature {
         this.scheduleVisualRefresh();
         return;
       }
-      if (!this.visualRoot || !this.visualRoot.isConnected) this.scheduleVisualRefresh();
+      if (!this.visualRoot || !this.visualRoot.isConnected || !this.visualMappingIsCurrent()) {
+        this.scheduleVisualRefresh();
+      }
     });
     this.observer.observe(content, { childList: true, characterData: true, subtree: true });
     document.addEventListener('keydown', this.onDocumentKeyDown, true);
@@ -135,14 +175,21 @@ export class HybridPreviewFeature {
   }
 
   detach(): void {
+    if (this.mode !== 'raw' && !this.visualComposing) this.flushVisualCommit();
     document.removeEventListener('keydown', this.onDocumentKeyDown, true);
     document.removeEventListener('mousedown', this.onDocumentMouseDown, true);
     document.removeEventListener('click', this.onNativeSaveCapture, true);
     document.removeEventListener('click', this.onNativeCloseCapture, true);
     this.observer?.disconnect();
     this.observer = null;
+    this.unsubscribeAdapterChanges?.();
+    this.unsubscribeAdapterChanges = null;
     window.clearTimeout(this.refreshTimer);
     window.clearTimeout(this.renderWaitTimer);
+    window.clearTimeout(this.visualSyncTimer);
+    this.visualSyncTimer = undefined;
+    window.clearTimeout(this.selectionRestoreTimer);
+    this.pendingVisualSelection = null;
     this.awaitingPreviewRender = false;
     this.closeContextMenu();
     this.deactivateVisualDocument();
@@ -209,7 +256,7 @@ export class HybridPreviewFeature {
 
   private setMode(mode: EditorMode, persist = true): boolean {
     if (mode === this.mode && mode === 'hybrid') return true;
-    if (this.mode !== 'raw' && !this.commitVisualDocument()) return false;
+    if (this.mode !== 'raw' && !this.flushVisualCommit()) return false;
     if (this.mode === 'raw') this.commitRaw();
     this.mode = mode;
     this.applyMode();
@@ -263,6 +310,7 @@ export class HybridPreviewFeature {
     textarea.className = 'fwa-hybrid-source';
     textarea.value = this.adapter.getValue();
     textarea.spellcheck = false;
+    textarea.addEventListener('input', () => this.commitRaw());
     textarea.addEventListener('blur', () => this.commitRaw());
     host.appendChild(textarea);
     this.preview.appendChild(host);
@@ -275,15 +323,227 @@ export class HybridPreviewFeature {
     if (!textarea) return;
     const current = this.adapter.getValue();
     if (textarea.value === current) return;
-    this.adapter.setSelection(0, current.length);
-    this.adapter.replaceSelection(textarea.value);
+    this.writeSourceValue(0, current.length, textarea.value, current);
+  }
+
+  /**
+   * Native editor changes are the other half of the shared source-of-truth
+   * contract. Wiki.js normally redraws its preview itself, but Future needs
+   * to know when that redraw belongs to a new Markdown snapshot so it can
+   * discard its old source offsets and rebind to the new DOM.
+   */
+  private readonly onAdapterChange = (): void => {
+    if (this.applyingSourceChange) return;
+
+    const source = this.adapter.getValue();
+    if (this.mode === 'raw') {
+      if (this.rawTextarea && document.activeElement !== this.rawTextarea) {
+        this.rawTextarea.value = source;
+      }
+      return;
+    }
+    if (source === this.visualSource) return;
+
+    window.clearTimeout(this.visualSyncTimer);
+    this.visualSyncTimer = undefined;
+    if (this.visualRoot?.contains(document.activeElement)) this.rememberVisualSelection();
+    this.visualDirty = false;
+    this.deactivateVisualDocument(true);
+    this.waitForPreviewRender();
+  };
+
+  private writeSourceValue(
+    start: number,
+    end: number,
+    replacement: string,
+    sourceBefore: string,
+    reparse = true,
+  ): void {
+    this.applyingSourceChange = true;
+    try {
+      this.adapter.replaceRange(start, end, replacement);
+    } finally {
+      this.applyingSourceChange = false;
+    }
+    // The replacement is exact for every supported adapter, so avoid a second
+    // bridge round-trip just to read back the value we already know.
+    const actual = sourceBefore.slice(0, start) + replacement + sourceBefore.slice(end);
+    this.visualSource = actual;
+    if (reparse) this.visualBlocks = parseHybridBlocks(actual);
+  }
+
+  /** Update cached source offsets after replacing one already-mapped block. */
+  private updateVisualBlocksAfterEdit(
+    start: number,
+    end: number,
+    replacement: string,
+    sourceBefore: string,
+  ): void {
+    const delta = replacement.length - (end - start);
+    const oldLineBreaks = (sourceBefore.slice(start, end).match(/\n/g) ?? []).length;
+    const newLineBreaks = (replacement.match(/\n/g) ?? []).length;
+    const lineDelta = newLineBreaks - oldLineBreaks;
+
+    this.visualBlocks = this.visualBlocks.map((block) => {
+      if (block.endOffset <= start) return block;
+      if (block.startOffset >= end) {
+        const startOffset = block.startOffset + delta;
+        const endOffset = block.endOffset + delta;
+        return {
+          ...block,
+          id: `${block.type}:${startOffset}:${endOffset}`,
+          startOffset,
+          endOffset,
+          startLine: block.startLine + lineDelta,
+          endLine: block.endLine + lineDelta,
+        };
+      }
+
+      const endOffset = block.endOffset + delta;
+      return {
+        ...block,
+        id: `${block.type}:${block.startOffset}:${endOffset}`,
+        rawMarkdown: this.visualSource.slice(block.startOffset, endOffset),
+        endOffset,
+        endLine: block.endLine + lineDelta,
+      };
+    });
+  }
+
+  /** Remember the live caret before Wiki.js replaces the rendered preview. */
+  private rememberVisualSelection(preserveExisting = false): void {
+    if (preserveExisting && this.pendingVisualSelection) return;
+    const bookmark = this.captureVisualSelection();
+    if (!bookmark) return;
+    this.pendingVisualSelection = bookmark;
+    window.clearTimeout(this.selectionRestoreTimer);
+    this.selectionRestoreTimer = window.setTimeout(() => {
+      this.pendingVisualSelection = null;
+    }, 1500);
+  }
+
+  private captureVisualSelection(): VisualSelectionBookmark | null {
+    const root = this.visualRoot;
+    const selection = window.getSelection();
+    if (!root || !selection || selection.rangeCount === 0) return null;
+    const range = selection.getRangeAt(0);
+    if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return null;
+
+    const point = (node: Node, offset: number): VisualSelectionPoint | null => {
+      const path = this.visualNodePath(root, node);
+      if (!path) return null;
+      const max = node.nodeType === Node.TEXT_NODE
+        ? (node.textContent ?? '').length
+        : node.childNodes.length;
+      const safeOffset = Math.max(0, Math.min(offset, max));
+      const prefix = document.createRange();
+      try {
+        prefix.selectNodeContents(root);
+        prefix.setEnd(node, safeOffset);
+      } catch {
+        return null;
+      }
+      return { path, offset: safeOffset, textOffset: prefix.toString().length };
+    };
+
+    const start = point(range.startContainer, range.startOffset);
+    const end = point(range.endContainer, range.endOffset);
+    return start && end ? { start, end } : null;
+  }
+
+  private visualNodePath(root: HTMLElement, node: Node): number[] | null {
+    if (node === root) return [];
+    const path: number[] = [];
+    let current: Node | null = node;
+    while (current && current !== root) {
+      const parent: Node | null = current.parentNode;
+      if (!parent) return null;
+      const index = Array.prototype.indexOf.call(parent.childNodes, current);
+      if (index < 0) return null;
+      path.unshift(index);
+      current = parent;
+    }
+    return current === root ? path : null;
+  }
+
+  private visualNodeAtPath(root: HTMLElement, path: number[]): Node | null {
+    let node: Node = root;
+    for (const index of path) {
+      const child = node.childNodes[index];
+      if (!child) return null;
+      node = child;
+    }
+    return node;
+  }
+
+  private visualPointAtTextOffset(root: HTMLElement, target: number): { node: Node; offset: number } {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode();
+    let remaining = Math.max(0, target);
+    let last: Node | null = null;
+    while (node) {
+      last = node;
+      const length = node.textContent?.length ?? 0;
+      if (remaining <= length) return { node, offset: remaining };
+      remaining -= length;
+      node = walker.nextNode();
+    }
+    return last
+      ? { node: last, offset: last.textContent?.length ?? 0 }
+      : { node: root, offset: root.childNodes.length };
+  }
+
+  private restoreVisualSelection(root: HTMLElement, bookmark: VisualSelectionBookmark): boolean {
+    const point = (saved: VisualSelectionPoint): { node: Node; offset: number } => {
+      const node = this.visualNodeAtPath(root, saved.path);
+      if (!node) return this.visualPointAtTextOffset(root, saved.textOffset);
+      const max = node.nodeType === Node.TEXT_NODE
+        ? (node.textContent ?? '').length
+        : node.childNodes.length;
+      return { node, offset: Math.max(0, Math.min(saved.offset, max)) };
+    };
+    const start = point(bookmark.start);
+    const end = point(bookmark.end);
+    const range = document.createRange();
+    try {
+      range.setStart(start.node, start.offset);
+      range.setEnd(end.node, end.offset);
+    } catch {
+      // A renderer may keep the same block path while changing its inline
+      // wrapper tree. Fall back to the saved document text offsets instead of
+      // focusing the root with a new caret at the heading.
+      const fallbackStart = this.visualPointAtTextOffset(root, bookmark.start.textOffset);
+      const fallbackEnd = this.visualPointAtTextOffset(root, bookmark.end.textOffset);
+      try {
+        range.setStart(fallbackStart.node, fallbackStart.offset);
+        range.setEnd(fallbackEnd.node, fallbackEnd.offset);
+      } catch {
+        return false;
+      }
+    }
+    root.focus({ preventScroll: true });
+    const selection = window.getSelection();
+    if (!selection) return false;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return true;
+  }
+
+  private visualMappingIsCurrent(): boolean {
+    const root = this.visualRoot;
+    if (!root || !root.isConnected) return false;
+    const mapped = Array.from(root.children)
+      .map((child) => sourceIndexOf(child as HTMLElement))
+      .filter((index): index is number => index !== null);
+    return mapped.length > 0 || this.visualBlocks.length === 0;
   }
 
   private scheduleVisualRefresh(): void {
+    if (this.visualRoot?.contains(document.activeElement)) this.rememberVisualSelection(true);
     window.clearTimeout(this.refreshTimer);
     this.refreshTimer = window.setTimeout(() => {
       if (this.mode !== 'raw') this.activateVisualDocument();
-    }, 100);
+    }, VISUAL_REFRESH_DELAY_MS);
   }
 
   /**
@@ -303,9 +563,30 @@ export class HybridPreviewFeature {
     }, 1000);
   }
 
+  /**
+   * Debounce source writes while the user is typing. The browser updates the
+   * contenteditable immediately; only the latest version of this visual block
+   * is sent to the native Markdown editor after a short pause.
+   */
+  private scheduleVisualCommit(): void {
+    window.clearTimeout(this.visualSyncTimer);
+    this.visualSyncTimer = window.setTimeout(() => {
+      this.visualSyncTimer = undefined;
+      if (this.visualComposing) return;
+      if (this.visualRoot && this.mode !== 'raw') this.commitVisualDocument(true);
+    }, VISUAL_SYNC_DELAY_MS);
+  }
+
+  private flushVisualCommit(keepVisualEditing = false): boolean {
+    window.clearTimeout(this.visualSyncTimer);
+    this.visualSyncTimer = undefined;
+    return this.commitVisualDocument(keepVisualEditing);
+  }
+
   private activateVisualDocument(): void {
     const root = this.previewContent?.firstElementChild as HTMLElement | null;
     if (!root) return;
+    const bookmark = this.pendingVisualSelection;
     this.deactivateVisualDocument();
     this.visualSource = this.adapter.getValue();
     this.visualBlocks = parseHybridBlocks(this.visualSource);
@@ -316,6 +597,8 @@ export class HybridPreviewFeature {
     root.spellcheck = true;
     root.addEventListener('contextmenu', this.onVisualContextMenu);
     root.addEventListener('input', this.onVisualInput);
+    root.addEventListener('compositionstart', this.onVisualCompositionStart);
+    root.addEventListener('compositionend', this.onVisualCompositionEnd);
     root.addEventListener('focusout', this.onVisualFocusOut);
     root.addEventListener('copy', this.onVisualClipboard);
     root.addEventListener('cut', this.onVisualClipboard);
@@ -325,7 +608,15 @@ export class HybridPreviewFeature {
     for (const image of Array.from(root.querySelectorAll<HTMLElement>('img'))) image.contentEditable = 'false';
     this.visualRoot = root;
     this.visualDirty = false;
-    root.focus();
+    if (bookmark) {
+      const restored = this.restoreVisualSelection(root, bookmark);
+      window.clearTimeout(this.selectionRestoreTimer);
+      this.selectionRestoreTimer = undefined;
+      if (!restored) root.focus({ preventScroll: true });
+    } else if (this.mode === 'hybrid') {
+      root.focus({ preventScroll: true });
+    }
+    this.pendingVisualSelection = null;
   }
 
   private deactivateVisualDocument(preserveLayout = false): void {
@@ -333,6 +624,8 @@ export class HybridPreviewFeature {
     if (!root) return;
     root.removeEventListener('contextmenu', this.onVisualContextMenu);
     root.removeEventListener('input', this.onVisualInput);
+    root.removeEventListener('compositionstart', this.onVisualCompositionStart);
+    root.removeEventListener('compositionend', this.onVisualCompositionEnd);
     root.removeEventListener('focusout', this.onVisualFocusOut);
     root.removeEventListener('copy', this.onVisualClipboard);
     root.removeEventListener('cut', this.onVisualClipboard);
@@ -349,6 +642,7 @@ export class HybridPreviewFeature {
     }
     this.visualRoot = null;
     this.visualDirty = false;
+    this.visualComposing = false;
   }
 
   private mapSourceBlocks(root: HTMLElement): void {
@@ -383,10 +677,55 @@ export class HybridPreviewFeature {
       element.title = block.type === 'image'
         ? '圖片內容受保護，可使用圖片功能更換'
         : '特殊 Markdown 區塊受保護，請切換 Raw 模式修改';
+    } else {
+      element.contentEditable = 'inherit';
+      element.removeAttribute('title');
     }
   }
 
-  private commitVisualDocument(): boolean {
+  /**
+   * Fast path for ordinary typing/deletion. The rendered block already holds
+   * the complete latest value, so replace only that block in the native source
+   * and shift cached offsets after it. This avoids a full-document diff and
+   * parse on every English character.
+   */
+  private commitVisualBlockEdits(current: string, children: HTMLElement[]): boolean {
+    const edits: VisualBlockEdit[] = [];
+    for (let index = 0; index < children.length; index++) {
+      const element = children[index];
+      if (!element.hasAttribute(DIRTY_BLOCK_ATTR)) continue;
+      const block = this.visualBlocks[index];
+      if (!block || !canSerializeVisualBlock(block)) continue;
+      const replacement = serializeVisualBlock(block, element);
+      if (replacement === null) return this.serializationFailed();
+      if (replacement !== block.rawMarkdown) {
+        edits.push({
+          index,
+          element,
+          start: block.startOffset,
+          end: block.endOffset,
+          replacement,
+        });
+      }
+    }
+
+    // Apply from the end so earlier source offsets stay valid while multiple
+    // blocks are being flushed in the same input burst.
+    if (edits.length > 0) this.rememberVisualSelection(true);
+    let source = current;
+    for (const edit of edits.sort((left, right) => right.start - left.start)) {
+      this.writeSourceValue(edit.start, edit.end, edit.replacement, source, false);
+      this.updateVisualBlocksAfterEdit(edit.start, edit.end, edit.replacement, source);
+      source = this.visualSource;
+      edit.element.removeAttribute(DIRTY_BLOCK_ATTR);
+    }
+
+    this.visualDirty = false;
+    for (const element of children) element.removeAttribute(DIRTY_BLOCK_ATTR);
+    return true;
+  }
+
+  private commitVisualDocument(keepVisualEditing = false): boolean {
     const root = this.visualRoot;
     if (!root) return true;
     if (!this.visualDirty) return true;
@@ -404,6 +743,10 @@ export class HybridPreviewFeature {
     const structureUnchanged =
       children.length === this.visualBlocks.length &&
       children.every((element, index) => sourceIndexOf(element) === index);
+    if (keepVisualEditing && structureUnchanged) {
+      return this.commitVisualBlockEdits(current, children);
+    }
+
     let next: string;
 
     if (structureUnchanged) {
@@ -435,10 +778,10 @@ export class HybridPreviewFeature {
 
     if (next !== current) {
       const diff = minimalDiff(current, next);
+      this.rememberVisualSelection();
       this.deactivateVisualDocument(true);
       this.waitForPreviewRender();
-      this.adapter.setSelection(diff.from, diff.to);
-      this.adapter.replaceSelection(diff.insert);
+      this.writeSourceValue(diff.from, diff.to, diff.insert, current);
     } else {
       this.visualDirty = false;
       for (const element of children) element.removeAttribute(DIRTY_BLOCK_ATTR);
@@ -495,6 +838,7 @@ export class HybridPreviewFeature {
       selection.addRange(range);
     }
     this.markVisualDirtyFromNode(window.getSelection()?.anchorNode ?? null);
+    this.scheduleVisualCommit();
   };
 
   /** Keep Wiki.js' document-level clipboard handlers from seeing a visual
@@ -504,10 +848,19 @@ export class HybridPreviewFeature {
   };
 
   private readonly onVisualInput = (event: Event): void => {
+    // Wiki.js does not own this contenteditable surface. Do not let its
+    // document-level input handlers treat every visual keystroke as a native
+    // Markdown editor change and start another preview render.
+    event.stopPropagation();
     this.markVisualDirtyFromNode(window.getSelection()?.anchorNode ?? event.target as Node | null);
-    // Future edits live in the rendered DOM until Save is pressed, so Wiki.js
-    // may still consider its native button "SAVED" and disable it. Keep that
-    // original action clickable; its capture handler commits Future first.
+    // The browser has already applied the edit to the contenteditable DOM.
+    // Defer the bridge/source write so that the input event itself never waits
+    // on CodeMirror/Monaco/Ace or a full block serialization.
+    const isComposing = this.visualComposing || (event as InputEvent).isComposing === true;
+    if (!isComposing) this.scheduleVisualCommit();
+
+    // Keep the native action clickable while Wiki.js processes the new source
+    // value. Its own dirty-state update can otherwise briefly disable Save.
     const icon = document.querySelector<HTMLElement>(wikiConfig.editor.saveButtonIconSelector);
     const saveButton = icon?.closest<HTMLButtonElement>('button');
     if (!saveButton) return;
@@ -516,12 +869,23 @@ export class HybridPreviewFeature {
     saveButton.classList.remove('v-btn--disabled');
   };
 
+  private readonly onVisualCompositionStart = (): void => {
+    this.visualComposing = true;
+  };
+
+  private readonly onVisualCompositionEnd = (): void => {
+    this.visualComposing = false;
+    // The final input event may be delivered before or after compositionend;
+    // schedule one commit after the completed IME value is in the DOM.
+    this.scheduleVisualCommit();
+  };
+
   private readonly onVisualFocusOut = (): void => {
     if (this.mode !== 'classic') return;
     window.setTimeout(() => {
       const root = this.visualRoot;
       if (!root || this.contextMenu || root.contains(document.activeElement)) return;
-      this.commitVisualDocument();
+      this.flushVisualCommit();
     }, 0);
   };
 
@@ -531,7 +895,7 @@ export class HybridPreviewFeature {
       this.commitRaw();
       return true;
     }
-    return this.commitVisualDocument();
+    return this.flushVisualCommit();
   }
 
   /**
@@ -573,47 +937,36 @@ export class HybridPreviewFeature {
     const sourceSpan = this.visualSourceSpan(range);
     if (!sourceSpan) return null;
     const { start: spanStart, end: spanEnd, text: span, firstIndex, lastIndex } = sourceSpan;
-    const relativeStart = selectedText.trim() === '' ? -1 : span.indexOf(selectedText);
-    if (relativeStart >= 0 && relativeStart === span.lastIndexOf(selectedText)) {
-      const start = spanStart + relativeStart;
-      return { start, end: start + selectedText.length, text: selectedText };
+
+    // Resolve through the rendered projection before looking at the raw
+    // source string. A direct indexOf() can accidentally land on a Markdown
+    // link target, an HTML attribute, or a formatting marker rather than the
+    // text the user actually selected.
+    const projected = findMarkdownTextRanges(span, selectedText);
+    if (projected && projected.length > 0) {
+      const start = spanStart + projected[0].start;
+      const end = spanStart + projected.at(-1)!.end;
+      if (projected.length === 1 || allowBlockFallback) {
+        return { start, end, text: this.visualSource.slice(start, end) };
+      }
     }
 
     // Repeated text inside one rendered block is still unambiguous from the
     // user's caret position. Match its occurrence number in the DOM to the
     // same occurrence in that block's Markdown instead of refusing common
     // selections such as a repeated product or account name.
-    if (relativeStart >= 0 && firstIndex === lastIndex) {
-      const starts: number[] = [];
-      for (let offset = 0; offset <= span.length - selectedText.length;) {
-        const found = span.indexOf(selectedText, offset);
-        if (found < 0) break;
-        starts.push(found);
-        offset = found + Math.max(1, selectedText.length);
-      }
-      const sourceElement = Array.from(root.children).find((child) =>
-        child instanceof HTMLElement && sourceIndexOf(child) === firstIndex,
-      );
-      if (sourceElement instanceof HTMLElement && starts.length > 1) {
-        try {
-          const prefixRange = document.createRange();
-          prefixRange.selectNodeContents(sourceElement);
-          prefixRange.setEnd(range.startContainer, range.startOffset);
-          const renderedPrefix = prefixRange.toString();
-          let ordinal = 0;
-          for (let offset = 0; offset <= renderedPrefix.length - selectedText.length;) {
-            const found = renderedPrefix.indexOf(selectedText, offset);
-            if (found < 0) break;
-            ordinal++;
-            offset = found + Math.max(1, selectedText.length);
+    if (firstIndex === lastIndex) {
+      const candidates = findMarkdownTextRangeCandidates(span, selectedText);
+      const sourceElement = this.visualSourceElement(firstIndex);
+      if (candidates && candidates.length > 1 && sourceElement) {
+        const ordinal = this.renderedOccurrenceBeforeElement(sourceElement, range, selectedText);
+        const matched = candidates[ordinal];
+        if (matched) {
+          const start = spanStart + matched[0].start;
+          const end = spanStart + matched.at(-1)!.end;
+          if (matched.length === 1 || allowBlockFallback) {
+            return { start, end, text: this.visualSource.slice(start, end) };
           }
-          const matched = starts[ordinal];
-          if (matched !== undefined) {
-            const start = spanStart + matched;
-            return { start, end: start + selectedText.length, text: selectedText };
-          }
-        } catch {
-          // Fall through to normalized matching or safe block fallback.
         }
       }
     }
@@ -631,7 +984,22 @@ export class HybridPreviewFeature {
   private visualSourceSpan(range: Range): VisualSourceSpan | null {
     const root = this.visualRoot;
     if (!root) return null;
-    const sourceIndexes: number[] = [];
+    const sourceIndexes = new Set<number>();
+
+    const addAncestorSourceIndex = (node: Node): void => {
+      let current: HTMLElement | null = node instanceof HTMLElement ? node : node.parentElement;
+      while (current && current !== root) {
+        const sourceIndex = sourceIndexOf(current);
+        if (sourceIndex !== null) {
+          sourceIndexes.add(sourceIndex);
+          return;
+        }
+        current = current.parentElement;
+      }
+    };
+
+    addAncestorSourceIndex(range.startContainer);
+    addAncestorSourceIndex(range.endContainer);
     for (const child of Array.from(root.children)) {
       if (!(child instanceof HTMLElement)) continue;
       try {
@@ -640,18 +1008,48 @@ export class HybridPreviewFeature {
         continue;
       }
       const sourceIndex = sourceIndexOf(child);
-      if (sourceIndex !== null) sourceIndexes.push(sourceIndex);
+      if (sourceIndex !== null) sourceIndexes.add(sourceIndex);
     }
-    if (sourceIndexes.length === 0) return null;
+    if (sourceIndexes.size === 0) return null;
 
-    const firstIndex = Math.min(...sourceIndexes);
-    const lastIndex = Math.max(...sourceIndexes);
+    const indexes = [...sourceIndexes];
+    const firstIndex = Math.min(...indexes);
+    const lastIndex = Math.max(...indexes);
     const firstBlock = this.visualBlocks[firstIndex];
     const lastBlock = this.visualBlocks[lastIndex];
     if (!firstBlock || !lastBlock) return null;
     const start = firstBlock.startOffset;
     const end = lastBlock.endOffset;
     return { start, end, text: this.visualSource.slice(start, end), firstIndex, lastIndex };
+  }
+
+  private visualSourceElement(index: number): HTMLElement | null {
+    const root = this.visualRoot;
+    if (!root) return null;
+    return Array.from(root.querySelectorAll<HTMLElement>(`[${SOURCE_INDEX_ATTR}]`))
+      .find((element) => sourceIndexOf(element) === index) ?? null;
+  }
+
+  private renderedOccurrenceBeforeElement(element: HTMLElement, range: Range, selectedText: string): number {
+    if (!element.contains(range.startContainer)) return 0;
+    const prefix = document.createRange();
+    try {
+      prefix.selectNodeContents(element);
+      prefix.setEnd(range.startContainer, range.startOffset);
+    } catch {
+      return 0;
+    }
+    const needle = selectedText.trim().replace(/\s+/g, ' ');
+    if (!needle) return 0;
+    const text = prefix.toString().replace(/\s+/g, ' ');
+    let count = 0;
+    for (let offset = 0; offset <= text.length - needle.length;) {
+      const index = text.indexOf(needle, offset);
+      if (index < 0) break;
+      count++;
+      offset = index + Math.max(1, needle.length);
+    }
+    return count;
   }
 
   private mapVisualRangeToSourceSegments(
@@ -683,12 +1081,49 @@ export class HybridPreviewFeature {
         }));
       }
     }
+    if ((!projected || projected.length === 0) && allowGlobalFallback) {
+      const candidates = findMarkdownTextRangeCandidates(this.visualSource, selectedText);
+      if (candidates) {
+        const ordinal = this.renderedOccurrenceBefore(range, selectedText);
+        const selected = candidates[ordinal];
+        if (selected) {
+          return selected.map((item) => ({
+            start: item.start,
+            end: item.end,
+            text: this.visualSource.slice(item.start, item.end),
+          }));
+        }
+      }
+    }
     if (!projected || projected.length === 0) return null;
     return projected.map((item) => ({
       start: baseOffset + item.start,
       end: baseOffset + item.end,
       text: source.slice(item.start, item.end),
     }));
+  }
+
+  private renderedOccurrenceBefore(range: Range, selectedText: string): number {
+    const root = this.visualRoot;
+    if (!root || !root.contains(range.startContainer)) return 0;
+    const prefix = document.createRange();
+    try {
+      prefix.selectNodeContents(root);
+      prefix.setEnd(range.startContainer, range.startOffset);
+    } catch {
+      return 0;
+    }
+    const needle = selectedText.trim().replace(/\s+/g, ' ');
+    if (!needle) return 0;
+    const text = prefix.toString().replace(/\s+/g, ' ');
+    let count = 0;
+    for (let offset = 0; offset <= text.length - needle.length;) {
+      const index = text.indexOf(needle, offset);
+      if (index < 0) break;
+      count++;
+      offset = index + Math.max(1, needle.length);
+    }
+    return count;
   }
 
   private readonly onVisualDragOver = (event: DragEvent): void => {
@@ -779,6 +1214,7 @@ export class HybridPreviewFeature {
         selection?.removeAllRanges();
         selection?.addRange(caret);
       }
+      this.flushVisualCommit(true);
     } finally {
       this.activeImageUploads--;
     }
@@ -996,6 +1432,7 @@ export class HybridPreviewFeature {
     image.removeAttribute(EXACT_SOURCE_ATTR);
     edit(image);
     this.markVisualDirty(image);
+    this.flushVisualCommit(true);
   }
 
   private setVisualImageSize(width: string): void {
@@ -1071,6 +1508,10 @@ export class HybridPreviewFeature {
     if (!range || range.collapsed) return;
 
     const selectedText = range.toString();
+    // If the user formats immediately after typing, commit the current DOM
+    // snapshot while keeping the same contenteditable tree alive. This updates
+    // visualSource/offsets before syntax mapping without losing the Range.
+    if (this.visualDirty && this.canKeepVisualEditing(range) && !this.flushVisualCommit(true)) return;
     const precise = this.mapVisualRangeToSourceSegments(range, selectedText, !allowBlockFallback) ?? [];
     let mapped = precise;
     if (allowBlockFallback && precise.length > 1) {
@@ -1093,7 +1534,7 @@ export class HybridPreviewFeature {
     // Flush other pending visual edits first. The colour operation itself has
     // not touched the DOM, so it never sends the selected block through the
     // lossy visual serializer merely to add a font tag.
-    if (this.visualDirty && !this.commitVisualDocument()) return;
+    if (this.visualDirty && !this.flushVisualCommit()) return;
 
     const current = this.adapter.getValue();
     let delta = 0;
@@ -1116,11 +1557,19 @@ export class HybridPreviewFeature {
     }
     if (next === current) return;
     const diff = minimalDiff(current, next);
+    this.rememberVisualSelection();
     this.deactivateVisualDocument(true);
     this.waitForPreviewRender();
-    this.adapter.setSelection(diff.from, diff.to);
-    this.adapter.replaceSelection(diff.insert);
+    this.writeSourceValue(diff.from, diff.to, diff.insert, current);
     this.adapter.setSelection(finalSelection.start, finalSelection.end);
+  }
+
+  private canKeepVisualEditing(range: Range): boolean {
+    const root = this.visualRoot;
+    if (!root || !root.contains(range.startContainer) || !root.contains(range.endContainer)) return false;
+    const children = Array.from(root.children);
+    return children.length === this.visualBlocks.length &&
+      children.every((element, index) => sourceIndexOf(element as HTMLElement) === index);
   }
 
   private closeContextMenu(): void {
@@ -1136,7 +1585,7 @@ export class HybridPreviewFeature {
   };
 
   private saveThroughWiki(): void {
-    if (this.mode !== 'raw' && !this.commitVisualDocument()) return;
+    if (this.mode !== 'raw' && !this.flushVisualCommit()) return;
     if (this.mode === 'raw') this.commitRaw();
     window.setTimeout(() => {
       const icon = document.querySelector<HTMLElement>(wikiConfig.editor.saveButtonIconSelector);
@@ -1151,7 +1600,7 @@ export class HybridPreviewFeature {
     const icon = document.querySelector<HTMLElement>(wikiConfig.editor.saveButtonIconSelector);
     const saveButton = icon?.closest<HTMLButtonElement>('button');
     if (!saveButton || !event.composedPath().includes(saveButton)) return;
-    if (this.commitVisualDocument()) return;
+    if (this.flushVisualCommit()) return;
     event.preventDefault();
     event.stopImmediatePropagation();
   };
@@ -1262,7 +1711,7 @@ export class HybridPreviewFeature {
       }
     }
 
-    if (!this.commitVisualDocument()) return;
+    if (!this.flushVisualCommit()) return;
     const before = this.adapter.getValue();
     try {
       const changed = direction === 'undo' ? this.adapter.undo() : this.adapter.redo();

@@ -13,12 +13,53 @@ interface NormalizedText {
   ends: number[];
 }
 
+const HTML_ENTITIES: Record<string, string> = {
+  amp: '&',
+  apos: "'",
+  gt: '>',
+  hellip: '…',
+  laquo: '«',
+  ldquo: '“',
+  lt: '<',
+  mdash: '—',
+  nbsp: ' ',
+  ndash: '–',
+  quot: '"',
+  raquo: '»',
+  rdquo: '”',
+};
+
+function isInvisibleLayoutCharacter(value: string): boolean {
+  return value === '\u200b' || value === '\ufeff' || value === '\u00ad';
+}
+
+function decodeHtmlEntity(value: string): string | null {
+  const body = value.slice(1, -1);
+  if (body.startsWith('#x') || body.startsWith('#X')) {
+    const codePoint = Number.parseInt(body.slice(2), 16);
+    return Number.isSafeInteger(codePoint) && codePoint >= 0 && codePoint <= 0x10ffff
+      ? String.fromCodePoint(codePoint)
+      : null;
+  }
+  if (body.startsWith('#')) {
+    const codePoint = Number.parseInt(body.slice(1), 10);
+    return Number.isSafeInteger(codePoint) && codePoint >= 0 && codePoint <= 0x10ffff
+      ? String.fromCodePoint(codePoint)
+      : null;
+  }
+  return HTML_ENTITIES[body.toLowerCase()] ?? null;
+}
+
 function normalizeWithOffsets(value: string): NormalizedText {
   let normalized = '';
   const starts: number[] = [];
   const ends: number[] = [];
 
   for (let index = 0; index < value.length;) {
+    if (isInvisibleLayoutCharacter(value[index])) {
+      index++;
+      continue;
+    }
     if (/\s/.test(value[index])) {
       const start = index;
       while (index < value.length && /\s/.test(value[index])) index++;
@@ -57,7 +98,12 @@ export function findNormalizedTextRange(source: string, selectedText: string): T
   };
 }
 
-function projectMarkdown(source: string, from = 0, to = source.length): ProjectedToken[] {
+function projectMarkdown(
+  source: string,
+  from = 0,
+  to = source.length,
+  preserveMarkdownSyntax = false,
+): ProjectedToken[] {
   const tokens: ProjectedToken[] = [];
   let index = from;
   let lineStart = index === 0 || source[index - 1] === '\n';
@@ -80,6 +126,10 @@ function projectMarkdown(source: string, from = 0, to = source.length): Projecte
     }
 
     const char = source[index];
+    if (isInvisibleLayoutCharacter(char)) {
+      index++;
+      continue;
+    }
     if (char === '\n') {
       emit(char, index, index + 1);
       index++;
@@ -97,7 +147,7 @@ function projectMarkdown(source: string, from = 0, to = source.length): Projecte
     const link = rest.match(/^\[([^\]\n]*)\]\([^\n)]*(?:\)[^\n)]*)?\)/);
     if (link) {
       const labelStart = index + 1;
-      tokens.push(...projectMarkdown(source, labelStart, labelStart + link[1].length));
+      tokens.push(...projectMarkdown(source, labelStart, labelStart + link[1].length, preserveMarkdownSyntax));
       index += link[0].length;
       continue;
     }
@@ -109,16 +159,33 @@ function projectMarkdown(source: string, from = 0, to = source.length): Projecte
       continue;
     }
 
+    // HTML entities are decoded by the browser before the user selects the
+    // rendered text. Keep the decoded character visible while retaining the
+    // complete entity as its source range.
+    const entity = rest.match(/^&(?:#\d+|#x[\da-f]+|[a-z][\da-z]+);/i);
+    if (entity) {
+      const decoded = decodeHtmlEntity(entity[0]);
+      if (decoded !== null) {
+        for (let characterIndex = 0; characterIndex < decoded.length; characterIndex++) {
+          emit(decoded[characterIndex], index, index + entity[0].length);
+        }
+        index += entity[0].length;
+        continue;
+      }
+    }
+
     if (char === '\\' && index + 1 < to) {
       emit(source[index + 1], index, index + 2);
       index += 2;
       continue;
     }
 
-    const marker = rest.match(/^(?:\*\*|__|~~|`+|\*(?=\S)|(?<=\S)\*)/);
-    if (marker) {
-      index += marker[0].length;
-      continue;
+    if (!preserveMarkdownSyntax) {
+      const marker = rest.match(/^(?:\*\*\*|___|==|\*\*|__|~~|`+|\*(?=\S)|(?<=\S)\*)/);
+      if (marker) {
+        index += marker[0].length;
+        continue;
+      }
     }
 
     emit(char, index, index + 1);
@@ -162,36 +229,69 @@ function normalizeProjection(tokens: ProjectedToken[]): NormalizedProjection {
  * item, line break or an existing Markdown wrapper.
  */
 export function findMarkdownTextRanges(source: string, selectedText: string): TextRange[] | null {
+  const candidates = findMarkdownTextRangeCandidates(source, selectedText);
+  return candidates?.length === 1 ? candidates[0] : null;
+}
+
+/**
+ * Return every unambiguous projected occurrence of a rendered selection. The
+ * original findMarkdownTextRanges API intentionally rejects repeated text;
+ * the visual editor can use this richer result together with the DOM
+ * occurrence ordinal to distinguish two identical words in different list
+ * items.
+ */
+export function findMarkdownTextRangeCandidates(
+  source: string,
+  selectedText: string,
+): TextRange[][] | null {
   const trimmed = selectedText.trim();
   if (trimmed === '') return null;
 
-  const tokens = projectMarkdown(source);
-  const projection = normalizeProjection(tokens);
   const needle = normalizeWithOffsets(trimmed).value;
-  const matchStart = projection.value.indexOf(needle);
-  if (matchStart < 0 || matchStart !== projection.value.lastIndexOf(needle)) return null;
+  if (needle === '') return null;
 
-  const normalizedEnd = matchStart + needle.length - 1;
-  const rawStart = projection.tokenStarts[matchStart];
-  const rawEnd = projection.tokenEnds[normalizedEnd];
-  const matched = tokens.slice(rawStart, rawEnd);
-  const ranges: TextRange[] = [];
-  let active: TextRange | null = null;
+  const findCandidates = (preserveMarkdownSyntax: boolean): TextRange[][] | null => {
+    const tokens = projectMarkdown(source, 0, source.length, preserveMarkdownSyntax);
+    const projection = normalizeProjection(tokens);
+    const candidates: TextRange[][] = [];
+    for (let offset = 0; offset <= projection.value.length - needle.length;) {
+      const matchStart = projection.value.indexOf(needle, offset);
+      if (matchStart < 0) break;
 
-  for (const token of matched) {
-    const raw = source.slice(token.start, token.end);
-    if (raw.includes('\n')) {
+      const normalizedEnd = matchStart + needle.length - 1;
+      const rawStart = projection.tokenStarts[matchStart];
+      const rawEnd = projection.tokenEnds[normalizedEnd];
+      const matched = tokens.slice(rawStart, rawEnd);
+      const ranges: TextRange[] = [];
+      let active: TextRange | null = null;
+
+      for (const token of matched) {
+        const raw = source.slice(token.start, token.end);
+        if (raw.includes('\n')) {
+          if (active) ranges.push(active);
+          active = null;
+          continue;
+        }
+        if (active && token.start < active.end && token.end <= active.end) continue;
+        if (active && token.start === active.end) active.end = token.end;
+        else {
+          if (active) ranges.push(active);
+          active = { start: token.start, end: token.end };
+        }
+      }
       if (active) ranges.push(active);
-      active = null;
-      continue;
-    }
-    if (active && token.start === active.end) active.end = token.end;
-    else {
-      if (active) ranges.push(active);
-      active = { start: token.start, end: token.end };
-    }
-  }
-  if (active) ranges.push(active);
 
-  return ranges.filter((range) => source.slice(range.start, range.end).trim() !== '');
+      const filtered = ranges.filter((range) => source.slice(range.start, range.end).trim() !== '');
+      if (filtered.length > 0) candidates.push(filtered);
+      offset = matchStart + Math.max(1, needle.length);
+    }
+
+    return candidates.length > 0 ? candidates : null;
+  };
+
+  // Normal Markdown is preferred. Preserve the markers only when the browser
+  // exposed them as visible text (for example, an unmatched/mixed marker that
+  // Wiki.js rendered literally); this keeps the mapping syntax-aware without
+  // rejecting the user's actual selection.
+  return findCandidates(false) ?? findCandidates(true);
 }
