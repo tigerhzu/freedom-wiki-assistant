@@ -5,6 +5,12 @@ import {
   type ChatCompletionResult,
   type ChatMessage,
 } from '../shared/azure-openai-client';
+import { resolveActiveAiProvider, AiProviderSettingsError } from '../shared/ai-provider-settings';
+import {
+  OrnithApiError,
+  callOrnithChatCompletion,
+  validateOrnithCredentials,
+} from '../shared/ornith-client';
 import {
   findForbiddenColorSyntax,
   findMissingPasswordValues,
@@ -16,13 +22,12 @@ import { buildLayoutRulesPrompt } from '../shared/layout-rules';
 import type { Settings } from '../shared/types';
 
 /**
- * Orchestrates one "AI 排版" run: builds the prompt, calls Azure OpenAI
- * (via the shared client — see azure-openai-client.ts for why this isn't
- * literally the same module as HaloPSA's), parses the required JSON
+ * Orchestrates one "AI 排版" run: builds the prompt, calls exactly one selected
+ * provider, parses the required JSON
  * contract, and layers a heuristic preserved-content check on top.
  *
  * Deliberately background-only: this is the one place allowed to see the
- * Azure OpenAI API key and to make the network call, per the same CORS +
+ * selected provider API key and to make the network call, per the same CORS +
  * key-exposure reasoning HaloPSA's service-worker.js documents.
  */
 
@@ -52,26 +57,29 @@ const REQUEST_TIMEOUT_MS = 60000;
 
 /**
  * The layout rules themselves live in shared/layout-rules.ts — the single
- * source shared with the /wiki-layout-extension Claude Code Skill, so the
- * button and the Skill can't drift into two different house styles on the
- * same page. Only the prompt plumbing (role, task framing, JSON contract)
- * is written here.
+ * source shared with the /wiki-layout-extension Claude Code Skill. Azure and
+ * Ornith deliberately receive the same complete formatting rules; only their
+ * provider-specific inference controls differ.
  *
  * This string must stay byte-identical between requests: it is the prefix
  * Azure's prompt cache keys on (first 1024 tokens must match exactly). Nothing
  * per-request — chunk position, content length, page path — may be interpolated
  * into it; that all belongs in the user message built by buildMessages().
  */
-const SYSTEM_PROMPT = [
+function buildSystemPrompt(rules: string): string {
+  return [
   '你是企業內部 Wiki／SOP 文件的排版助手，只負責整理 Markdown／HTML 的「格式」與重點標註，不是內容審核者或編輯。',
   '你可以調整標題層級、清單、表格、粗體／斜體、空白行與段落分段，並依下方色票為既有的重要資訊加上顏色註記，讓文件更清楚易讀。',
   '',
-  buildLayoutRulesPrompt(),
+  rules,
   '',
   '輸出規則：只能輸出一個 JSON 物件，格式固定如下，不可有其他文字、註解或 Markdown code fence：',
   '{"formatted_content": "排版後的完整內容", "changes": ["整理項目說明，例如：統一標題層級"], "warnings": ["需要人工確認的項目，沒有則為空陣列"]}',
   'changes 必須包含顏色註記說明，格式為「顏色 → 標記的段落 → 理由」，並在最後一項回報彩色標記總處數。',
-].join('\n');
+  ].join('\n');
+}
+
+const SYSTEM_PROMPT = buildSystemPrompt(buildLayoutRulesPrompt());
 
 export interface AiLayoutChunkInfo {
   /** 1-based; 1 when the content wasn't split. */
@@ -85,7 +93,10 @@ export interface AiLayoutChunkInfo {
  * fixed instruction line stay identical across calls and only the article text
  * differs at the tail.
  */
-function buildMessages(content: string, chunk: AiLayoutChunkInfo): ChatMessage[] {
+function buildMessages(
+  content: string,
+  chunk: AiLayoutChunkInfo,
+): ChatMessage[] {
   const chunkNote =
     chunk.total > 1
       ? [
@@ -112,23 +123,44 @@ function buildMessages(content: string, chunk: AiLayoutChunkInfo): ChatMessage[]
  * worker console (edge://extensions → 檢查檢視 service worker); the content
  * script logs the per-run total in the page console as well.
  */
-function logUsage(usage: AiLayoutUsage | null, chunk: AiLayoutChunkInfo, apiVersion: string): void {
+function logUsage(
+  usage: AiLayoutUsage | null,
+  chunk: AiLayoutChunkInfo,
+  providerName: string,
+  apiVersion = '',
+): void {
   const where = chunk.total > 1 ? `chunk ${chunk.index}/${chunk.total}` : 'single';
   if (!usage) {
-    console.info(`[FWA] AI 排版 ${where} — Azure 回應沒有 usage 物件，無法記錄 token 用量`);
+    console.info(`[FWA] AI 排版 ${where} — ${providerName} 回應沒有 usage 物件，無法記錄 token 用量`);
     return;
   }
   if (!usage.cacheReported) {
+    const detail = apiVersion
+      ? `（此 deployment 的模型或 api-version ${apiVersion} 沒有回傳 prompt_tokens_details.cached_tokens；Prompt Cache 需要 GPT-4o 或更新的模型）`
+      : `（${providerName} 沒有回傳 prompt_tokens_details.cached_tokens）`;
+    const performance = formatPerformance(usage);
     console.info(
-      `[FWA] AI 排版 ${where} — input ${usage.promptTokens} / cached input 未回報 / output ${usage.completionTokens} / total ${usage.totalTokens}` +
-        `（此 deployment 的模型或 api-version ${apiVersion} 沒有回傳 prompt_tokens_details.cached_tokens；Prompt Cache 需要 GPT-4o 或更新的模型）`,
+      `[FWA] AI 排版 ${where} — input ${usage.promptTokens} / cached input 未回報 / output ${usage.completionTokens}` +
+        `${formatReasoning(usage)} / total ${usage.totalTokens}${performance}` + detail,
     );
     return;
   }
   const hitRate = usage.promptTokens > 0 ? Math.round((usage.cachedTokens / usage.promptTokens) * 100) : 0;
   console.info(
-    `[FWA] AI 排版 ${where} — input ${usage.promptTokens} / cached input ${usage.cachedTokens} (${hitRate}%) / output ${usage.completionTokens} / total ${usage.totalTokens}`,
+    `[FWA] AI 排版 ${where} — input ${usage.promptTokens} / cached input ${usage.cachedTokens} (${hitRate}%) / output ${usage.completionTokens}` +
+      `${formatReasoning(usage)} / total ${usage.totalTokens}${formatPerformance(usage)}`,
   );
+}
+
+function formatReasoning(usage: AiLayoutUsage): string {
+  return usage.reasoningTokens === undefined ? '' : ` / reasoning ${usage.reasoningTokens}`;
+}
+
+function formatPerformance(usage: AiLayoutUsage): string {
+  if (usage.durationMs === undefined) return '';
+  const seconds = (usage.durationMs / 1000).toFixed(1);
+  const rate = usage.outputTokensPerSecond === undefined ? '' : ` / ${usage.outputTokensPerSecond} output tokens/s`;
+  return ` / ${seconds}s${rate}`;
 }
 
 function stripJsonFence(raw: string): string {
@@ -184,27 +216,55 @@ export async function runAiLayout(
     );
   }
 
-  let creds;
+  let provider: 'ornith' | 'azure';
   try {
-    creds = validateAzureCredentials(settings);
+    provider = resolveActiveAiProvider(settings);
   } catch (err) {
-    if (err instanceof AzureOpenAiError) throw new AiLayoutError(err.message, err.code);
+    if (err instanceof AiProviderSettingsError) throw new AiLayoutError(err.message, 'config-missing');
     throw err;
   }
 
   let completion: ChatCompletionResult;
-  try {
-    completion = await callAzureChatCompletion(creds, buildMessages(content, chunk), {
-      timeoutMs: REQUEST_TIMEOUT_MS,
-      temperature: 0.2,
-      maxTokens: MAX_TOKENS,
-    });
-  } catch (err) {
-    if (err instanceof AzureOpenAiError) throw new AiLayoutError(err.message, err.code);
-    throw new AiLayoutError(err instanceof Error ? err.message : String(err), 'unknown');
+  if (provider === 'ornith') {
+    let creds;
+    try {
+      creds = validateOrnithCredentials(settings);
+    } catch (err) {
+      if (err instanceof OrnithApiError) throw new AiLayoutError(err.message, err.code);
+      throw err;
+    }
+    try {
+      completion = await callOrnithChatCompletion(creds, buildMessages(content, chunk), {
+        timeoutMs: REQUEST_TIMEOUT_MS,
+        // Wiki layout needs deterministic throughput, not creative reasoning.
+        temperature: 0.1,
+        maxTokens: MAX_TOKENS,
+      });
+    } catch (err) {
+      if (err instanceof OrnithApiError) throw new AiLayoutError(err.message, err.code);
+      throw new AiLayoutError(err instanceof Error ? err.message : String(err), 'unknown');
+    }
+    logUsage(completion.usage, chunk, 'Ornith');
+  } else {
+    let creds;
+    try {
+      creds = validateAzureCredentials(settings);
+    } catch (err) {
+      if (err instanceof AzureOpenAiError) throw new AiLayoutError(err.message, err.code);
+      throw err;
+    }
+    try {
+      completion = await callAzureChatCompletion(creds, buildMessages(content, chunk), {
+        timeoutMs: REQUEST_TIMEOUT_MS,
+        temperature: 0.2,
+        maxTokens: MAX_TOKENS,
+      });
+    } catch (err) {
+      if (err instanceof AzureOpenAiError) throw new AiLayoutError(err.message, err.code);
+      throw new AiLayoutError(err instanceof Error ? err.message : String(err), 'unknown');
+    }
+    logUsage(completion.usage, chunk, 'Azure', creds.apiVersion);
   }
-
-  logUsage(completion.usage, chunk, creds.apiVersion);
 
   const result = parseAiLayoutResponse(completion.text);
   if (completion.usage) result.usage = completion.usage;

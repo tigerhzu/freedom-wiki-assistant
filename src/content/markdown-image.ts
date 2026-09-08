@@ -282,7 +282,7 @@ export function buildImgTag(image: {
 }
 
 /** Render a token back as Markdown (`![alt](url "title")`). */
-export function toMarkdownImage(image: ImageToken): string {
+export function toMarkdownImage(image: Pick<ImageToken, 'alt' | 'url' | 'title'>): string {
   const alt = image.alt.replace(/([[\]])/g, '\\$1');
   // CommonMark requires <> around destinations containing whitespace or
   // unbalanced parentheses — `影像 (1).png` stays readable, `a (b.png` stays valid.

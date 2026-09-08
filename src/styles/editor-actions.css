@@ -1,157 +1,73 @@
-/* Controls live in Wiki.js' native title-row flex layout. */
+/* Native Wiki header controls stay in its flex flow; SAVE/PAGE/CLOSE keep priority. */
 .fwa-header-controls-host {
-  align-items: center;
-  display: inline-flex;
-  flex: 0 0 auto;
-  gap: 0;
-  height: 100%;
-  min-width: 0;
-  pointer-events: auto;
-  position: relative;
-  z-index: 10;
-  white-space: nowrap;
+  --fwa-header-ink: #346aab; --fwa-header-line: #cfdef0; --fwa-header-hover: #e9f2ff;
+  display: inline-flex; align-items: center; flex: 0 0 auto; gap: 5px;
+  height: 100%; min-width: max-content; margin: 0 12px; position: relative;
+  pointer-events: auto; white-space: nowrap;
 }
-
-.fwa-header-title {
-  min-width: 0 !important;
-  flex: 1 1 auto !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-  white-space: nowrap !important;
+.fwa-header-controls-host.is-dark { --fwa-header-ink: #f2f5fa; --fwa-header-line: #ffffff30; --fwa-header-hover: #ffffff18; }
+.fwa-header-title { min-width: 0 !important; flex: 1 1 auto !important; overflow: hidden !important; text-overflow: ellipsis !important; white-space: nowrap !important; }
+.fwa-header-controls-host > button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  flex: 0 0 auto; min-width: 32px; height: 32px; padding: 0 8px; margin: 0;
+  position: relative; appearance: none; box-sizing: border-box; cursor: pointer;
+  color: var(--fwa-header-ink); background: transparent; border: 1px solid transparent;
+  border-radius: 11px; font: 500 12px/1.2 "Segoe UI Variable", "Segoe UI", "Microsoft JhengHei", system-ui, sans-serif;
+  text-transform: none; letter-spacing: normal; box-shadow: none; touch-action: manipulation;
 }
-
-.fwa-header-color-swatch,
-.fwa-header-topology,
-.fwa-header-settings {
-  /* Keep the controls above adjacent native toolbar content without leaving
-   * the title-row layout or covering the search column. */
-  position: relative;
-  z-index: 1;
-  pointer-events: auto;
-  touch-action: manipulation;
+.fwa-header-controls-host > button svg { flex: none; width: 16px; height: 16px; }
+.fwa-header-controls-host > .fwa-header-workspace { padding: 0 11px; margin-right: 4px; border-color: var(--fwa-header-line); font-weight: 600; }
+.fwa-header-controls-host > .fwa-header-color-swatch {
+  padding: 0; border-color: var(--fwa-header-line); background: transparent;
 }
-
-.fwa-header-color-swatch {
-  align-items: center;
-  appearance: none;
+.fwa-header-color-chip {
+  display: block; width: 18px; height: 18px; border: 1px solid rgb(255 255 255 / .62);
+  border-radius: 4px;
   background: linear-gradient(135deg, var(--fwa-color-start, #1976d2), var(--fwa-color-end, #1561ac));
-  border: 1px solid rgba(255, 255, 255, 0.72);
-  border-radius: 2px;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.18);
-  box-sizing: border-box;
-  cursor: pointer;
-  display: inline-flex;
-  flex: 0 0 auto;
-  height: 22px;
-  margin: 0 10px;
-  padding: 0;
-  width: 28px;
+  box-shadow: 0 0 0 1px rgb(29 45 65 / .58), inset 0 0 0 1px rgb(0 0 0 / .04);
 }
-
-.fwa-header-color-swatch:hover,
-.fwa-header-color-swatch:focus-visible {
-  box-shadow: 0 0 0 2px #54aeff, 0 0 0 3px rgba(0, 0, 0, 0.28);
-  outline: none;
-}
-
-.fwa-header-topology {
-  align-items: center;
-  appearance: none;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.42);
-  border-radius: 4px;
-  box-sizing: border-box;
-  color: #fff;
-  cursor: pointer;
-  display: inline-flex;
-  flex: 0 0 auto;
-  font: 700 12px/1 system-ui, sans-serif;
-  height: 28px;
-  justify-content: center;
-  margin: 0 8px;
-  min-width: 42px;
-  padding: 0 7px;
-  white-space: nowrap;
-}
-
-.fwa-header-topology:hover,
-.fwa-header-topology:focus-visible {
-  background: #24476d;
-  border-color: #54aeff;
-  outline: none;
-}
-
-.fwa-header-settings {
-  align-items: center;
-  appearance: none;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.42);
-  border-radius: 4px;
-  box-sizing: border-box;
-  color: #fff;
-  cursor: pointer;
-  display: inline-flex;
-  flex: 0 0 auto;
-  font: 700 12px/1 system-ui, sans-serif;
-  height: 28px;
-  justify-content: center;
-  margin: 0 8px;
-  min-width: 48px;
-  padding: 0 8px;
-  white-space: nowrap;
-}
-
-.fwa-header-settings:hover,
-.fwa-header-settings:focus-visible {
-  background: #24476d;
-  border-color: #54aeff;
-  outline: none;
-}
-
+.fwa-header-controls-host > button:hover { background: var(--fwa-header-hover); }
+.fwa-header-controls-host > .fwa-header-color-swatch:hover .fwa-header-color-chip { box-shadow: 0 0 0 2px #76aff5; }
+.fwa-header-controls-host > button:focus-visible { outline: 2px solid #76aff5; outline-offset: 2px; background: var(--fwa-header-hover); }
+.fwa-header-controls-host > button:disabled { cursor: wait; opacity: .55; }
 .fwa-editor-actions {
-  align-items: center;
-  border-right: 1px solid rgba(255, 255, 255, 0.34);
-  display: inline-flex;
-  flex: 0 0 auto;
-  gap: 8px;
-  margin: 0 20px 0 0;
-  padding-right: 20px;
+  display: inline-flex; align-items: center; flex: 0 0 auto; gap: 6px;
+  margin: 0 13px 0 0; padding: 0 13px 0 0; border-right: 1px solid #a6a9cf60;
 }
-
 .fwa-editor-action {
-  background: #30363d;
-  border: 1px solid #8b949e;
-  border-radius: 7px;
-  color: #fff;
-  cursor: pointer;
-  font: 700 14px/1.2 system-ui, sans-serif;
-  min-height: 34px;
-  padding: 7px 14px;
-  white-space: nowrap;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 6px 10px; min-height: 33px; margin: 0; appearance: none;
+  color: #287dea; background: #e9f2ff; border: 1px solid #d6e5f8; border-radius: 11px;
+  font: 500 12px/1.3 "Segoe UI Variable", "Segoe UI", "Microsoft JhengHei", system-ui, sans-serif; cursor: pointer;
+  white-space: nowrap; text-transform: none; box-shadow: none;
 }
-
-.fwa-editor-action:last-child {
-  background: #24476d;
-  border-color: #54aeff;
+.fwa-editor-action svg { flex: none; width: 16px; height: 16px; }
+.fwa-editor-actions.is-dark .fwa-editor-action { color: #f2f5fa; border-color: #ffffff30; background: #ffffff0b; }
+.fwa-editor-action:hover { background: #dfedff; border-color: #a9c9f0; }
+.fwa-editor-actions.is-dark .fwa-editor-action:hover { background: #ffffff20; border-color: #76aff5; }
+.fwa-editor-action:focus-visible { outline: 2px solid #76aff5; outline-offset: 2px; }
+@media (max-width: 1100px) {
+  .fwa-header-controls-host { gap: 2px; margin-inline: 8px; }
+  .fwa-header-control-label { display: none; }
+  .fwa-header-controls-host > .fwa-header-color-swatch { display: none; }
+  .fwa-editor-actions { gap: 4px; margin-right: 8px; padding-right: 8px; }
+  .fwa-editor-action { padding: 6px 8px; }
 }
-
-.fwa-editor-action:hover,
-.fwa-editor-action:focus-visible {
-  background: #40505f;
-  border-color: #9fceff;
-  color: #fff;
-  outline: none;
+.fwa-header-controls-host.is-compact .fwa-header-control-label,
+.fwa-header-controls-host.is-compact > .fwa-header-color-swatch,
+.fwa-header-controls-host.is-minimal > .fwa-header-asset-review,
+.fwa-header-controls-host.is-minimal > .fwa-header-topology,
+.fwa-header-controls-host.is-icon-only .fwa-header-workspace > span { display: none; }
+.fwa-header-controls-host.is-compact { gap: 2px; margin-inline: 5px; }
+@media (max-width: 760px) {
+  .fwa-header-controls-host > .fwa-header-asset-review, .fwa-header-controls-host > .fwa-header-topology { display: none; }
+  .fwa-header-controls-host { margin-inline: 5px; }
+  .fwa-header-controls-host > .fwa-header-workspace { margin: 0; padding: 0 8px; }
+  .fwa-editor-action > span { display: none; }
+  .fwa-editor-action { min-width: 32px; padding: 7px; }
 }
-
-.fwa-editor-action:last-child:hover,
-.fwa-editor-action:last-child:focus-visible {
-  background: #2f65a0;
-}
-
-@media (max-width: 900px) {
-  .fwa-editor-action { font-size: 12px; min-height: 31px; padding: 6px 9px; }
-  .fwa-editor-actions { gap: 5px; margin-right: 12px; padding-right: 12px; }
-  .fwa-header-topology { margin-left: 5px; margin-right: 5px; min-width: 38px; padding: 0 5px; }
-  .fwa-header-color-swatch { margin-left: 6px; margin-right: 6px; }
-  .fwa-header-settings { margin-left: 5px; margin-right: 5px; min-width: 44px; padding: 0 5px; }
+@media (max-width: 540px) {
+  .fwa-editor-actions { display: none; }
+  .fwa-header-controls-host > .fwa-header-workspace { min-width: 32px; padding: 0 7px; }
+  .fwa-header-workspace > span { display: none; }
 }

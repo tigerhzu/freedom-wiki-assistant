@@ -31,17 +31,139 @@ interface Selection3 {
   end: number;
 }
 
+interface EditorMutationContext {
+  origin?: string;
+  transactionId?: string;
+  suppressPreviewRender?: boolean;
+}
+
 interface EditorOps {
   getValue(): string;
-  setValue(v: string): void;
+  setValue(v: string, context?: EditorMutationContext): void;
   getSelection(): Selection3;
   setSelection(start: number, end: number): void;
-  replaceRange(start: number, end: number, v: string): void;
-  replaceSelection(v: string): void;
-  insertAtCursor(v: string): void;
+  replaceRange(start: number, end: number, v: string, context?: EditorMutationContext): void;
+  replaceSelection(v: string, context?: EditorMutationContext): void;
+  insertAtCursor(v: string, context?: EditorMutationContext): void;
   undo(): void;
   redo(): void;
   focus(): void;
+}
+
+let activeChangeContext: EditorMutationContext | null = null;
+
+const PREVIEW_RENDER_GUARD_MS = 2500;
+const previewRenderGuards = new WeakMap<HTMLElement, { suppressUntil: number }>();
+let activePreviewRenderGuard: { root: HTMLElement; guard: { suppressUntil: number } } | null = null;
+const codeMirrorScrollGuards = new WeakMap<object, {
+  suppressUntil: number;
+  originalSomethingSelected: (...args: any[]) => any;
+}>();
+
+function findPropertyDescriptor(target: object | null, property: PropertyKey): PropertyDescriptor | null {
+  let current: object | null = target;
+  while (current) {
+    const descriptor = Object.getOwnPropertyDescriptor(current, property);
+    if (descriptor) return descriptor;
+    current = Object.getPrototypeOf(current);
+  }
+  return null;
+}
+
+/**
+ * Wiki.js' editor-markdown component keeps the preview root element but writes
+ * a new innerHTML into it from its debounced Markdown watcher. A visual
+ * transaction already has the correct DOM in that element, so let Wiki.js
+ * update its Markdown store while making that one reverse render a no-op.
+ * This is a page-world boundary guard, not a caret restoration: the live
+ * foreground DOM is never replaced in the first place.
+ */
+function suppressWikiPreviewRender(cm: any): void {
+  const root = document.querySelector<HTMLElement>('.editor-markdown-preview-content > div');
+  if (root) {
+    let guard = previewRenderGuards.get(root);
+    if (!guard) {
+      const descriptor = findPropertyDescriptor(root, 'innerHTML');
+      if (descriptor?.set) {
+        guard = { suppressUntil: 0 };
+        try {
+          Object.defineProperty(root, 'innerHTML', {
+            configurable: true,
+            enumerable: descriptor.enumerable ?? false,
+            get: descriptor.get
+              ? function(this: HTMLElement): string {
+                  return descriptor.get!.call(this) as string;
+                }
+              : undefined,
+            set: function(this: HTMLElement, value: string): void {
+              if (guard!.suppressUntil > Date.now()) return;
+              descriptor.set!.call(this, value);
+            },
+          });
+          previewRenderGuards.set(root, guard);
+          activePreviewRenderGuard = { root, guard };
+        } catch {
+          guard = undefined;
+        }
+      }
+    }
+    if (guard) {
+      guard.suppressUntil = Date.now() + PREVIEW_RENDER_GUARD_MS;
+      activePreviewRenderGuard = { root, guard };
+    }
+  }
+
+  // Wiki.js also schedules scrollSync from CodeMirror cursorActivity. Its
+  // component instance is production-private on this installation, but the
+  // public CodeMirror object is available here. Make only scrollSync observe
+  // a temporary "selection" during this projection window; native editing
+  // releases the guard immediately in watchEditorChanges().
+  scrollSyncSuppressedUntil = Date.now() + PREVIEW_RENDER_GUARD_MS;
+  if (!cm || typeof cm.somethingSelected !== 'function') return;
+  let scrollGuard = codeMirrorScrollGuards.get(cm);
+  if (!scrollGuard) {
+    const originalSomethingSelected = cm.somethingSelected;
+    scrollGuard = {
+      suppressUntil: 0,
+      originalSomethingSelected,
+    };
+    try {
+      cm.somethingSelected = function(this: any, ...args: any[]): any {
+        return scrollGuard!.suppressUntil > Date.now()
+          ? true
+          : scrollGuard!.originalSomethingSelected.apply(this, args);
+      };
+      codeMirrorScrollGuards.set(cm, scrollGuard);
+    } catch {
+      scrollGuard = undefined;
+    }
+  }
+  if (scrollGuard) scrollGuard.suppressUntil = Date.now() + PREVIEW_RENDER_GUARD_MS;
+}
+
+function releaseWikiProjectionGuards(cm?: any): void {
+  scrollSyncSuppressedUntil = 0;
+  if (activePreviewRenderGuard) {
+    activePreviewRenderGuard.guard.suppressUntil = 0;
+    activePreviewRenderGuard = null;
+  }
+  if (cm) {
+    const guard = codeMirrorScrollGuards.get(cm);
+    if (guard) guard.suppressUntil = 0;
+  }
+  // Do not restore DOM setters here: their normal path is already the native
+  // setter, and leaving the tiny wrapper installed lets a later visual
+  // projection guard the same Wiki.js root without racing component updates.
+}
+
+function withChangeContext<T>(context: EditorMutationContext | undefined, callback: () => T): T {
+  const previous = activeChangeContext;
+  activeChangeContext = context ?? null;
+  try {
+    return callback();
+  } finally {
+    activeChangeContext = previous;
+  }
 }
 
 function targetElement(): HTMLElement {
@@ -60,7 +182,7 @@ function cm5Ops(target: HTMLElement): EditorOps {
   const doc = () => cm.getDoc();
   return {
     getValue: () => cm.getValue(),
-    setValue: (v) => cm.setValue(v),
+    setValue: (v, context) => withChangeContext(context, () => cm.setValue(v)),
     getSelection: () => {
       const d = doc();
       const start = d.indexFromPos(d.getCursor('from'));
@@ -71,16 +193,28 @@ function cm5Ops(target: HTMLElement): EditorOps {
       const d = doc();
       d.setSelection(d.posFromIndex(s), d.posFromIndex(e));
     },
-    replaceRange: (s, e, v) => {
+    replaceRange: (s, e, v, context) => {
       const d = doc();
+      if (context?.suppressPreviewRender) suppressWikiPreviewRender(cm);
       // This is a background source update from the visual editor. Replacing
       // the range directly keeps the user's native Markdown selection and
       // viewport intact; selecting the range first makes CodeMirror jump to
       // the edited line on every visual commit.
-      d.replaceRange(v, d.posFromIndex(s), d.posFromIndex(e), 'fwa');
+      // Install/arm the Wiki.js guard before replaceRange emits CodeMirror's
+      // synchronous change event. Waiting for a later change listener leaves
+      // a race where Wiki.js can run scrollSync first.
+      try {
+        guardWikiScrollSync();
+      } catch {
+        // Non-Wiki.js CodeMirror hosts have no Vue scrollSync to guard.
+      }
+      suppressWikiScrollSync();
+      withChangeContext(context, () => {
+        d.replaceRange(v, d.posFromIndex(s), d.posFromIndex(e), context ? 'fwa' : 'fwa-native');
+      });
     },
-    replaceSelection: (v) => doc().replaceSelection(v, 'end'),
-    insertAtCursor: (v) => doc().replaceSelection(v, 'end'),
+    replaceSelection: (v, context) => withChangeContext(context, () => doc().replaceSelection(v, 'end')),
+    insertAtCursor: (v, context) => withChangeContext(context, () => doc().replaceSelection(v, 'end')),
     undo: () => doc().undo(),
     redo: () => doc().redo(),
     focus: () => cm.focus(),
@@ -96,16 +230,17 @@ function cm6Ops(target: HTMLElement): EditorOps {
   if (!view) throw new Error('CodeMirror 6 EditorView not found (cmView missing)');
   return {
     getValue: () => view.state.doc.toString(),
-    setValue: (v) =>
-      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: v } }),
+    setValue: (v, context) =>
+      withChangeContext(context, () => view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: v } })),
     getSelection: () => {
       const main = view.state.selection.main;
       return { start: main.from, end: main.to, text: view.state.sliceDoc(main.from, main.to) };
     },
     setSelection: (s, e) => view.dispatch({ selection: { anchor: s, head: e } }),
-    replaceRange: (s, e, v) => view.dispatch({ changes: { from: s, to: e, insert: v } }),
-    replaceSelection: (v) => view.dispatch(view.state.replaceSelection(v)),
-    insertAtCursor: (v) => view.dispatch(view.state.replaceSelection(v)),
+    replaceRange: (s, e, v, context) =>
+      withChangeContext(context, () => view.dispatch({ changes: { from: s, to: e, insert: v } })),
+    replaceSelection: (v, context) => withChangeContext(context, () => view.dispatch(view.state.replaceSelection(v))),
+    insertAtCursor: (v, context) => withChangeContext(context, () => view.dispatch(view.state.replaceSelection(v))),
     undo: () => dispatchHistoryKey(view, 'z'),
     redo: () => dispatchHistoryKey(view, 'z', true),
     focus: () => view.focus(),
@@ -124,7 +259,7 @@ function monacoOps(target: HTMLElement): EditorOps {
   const model = () => ed.getModel();
   return {
     getValue: () => model().getValue(),
-    setValue: (v) => model().setValue(v),
+    setValue: (v, context) => withChangeContext(context, () => model().setValue(v)),
     getSelection: () => {
       const sel = ed.getSelection();
       const m = model();
@@ -143,22 +278,22 @@ function monacoOps(target: HTMLElement): EditorOps {
         endColumn: ep.column,
       });
     },
-    replaceRange: (s, e, v) => {
+    replaceRange: (s, e, v, context) => {
       const m = model();
       const sp = m.getPositionAt(s);
       const ep = m.getPositionAt(e);
-      ed.executeEdits('fwa', [{
-        range: {
-          startLineNumber: sp.lineNumber,
-          startColumn: sp.column,
-          endLineNumber: ep.lineNumber,
-          endColumn: ep.column,
-        },
-        text: v,
-      }]);
+      withChangeContext(context, () => ed.executeEdits('fwa', [{
+          range: {
+            startLineNumber: sp.lineNumber,
+            startColumn: sp.column,
+            endLineNumber: ep.lineNumber,
+            endColumn: ep.column,
+          },
+          text: v,
+        }]));
     },
-    replaceSelection: (v) => ed.executeEdits('fwa', [{ range: ed.getSelection(), text: v }]),
-    insertAtCursor: (v) => ed.executeEdits('fwa', [{ range: ed.getSelection(), text: v }]),
+    replaceSelection: (v, context) => withChangeContext(context, () => ed.executeEdits('fwa', [{ range: ed.getSelection(), text: v }])),
+    insertAtCursor: (v, context) => withChangeContext(context, () => ed.executeEdits('fwa', [{ range: ed.getSelection(), text: v }])),
     undo: () => ed.trigger('fwa', 'undo', null),
     redo: () => ed.trigger('fwa', 'redo', null),
     focus: () => ed.focus(),
@@ -178,7 +313,7 @@ function aceOps(target: HTMLElement): EditorOps {
   const indexToPos = (i: number) => doc().indexToPosition(i);
   return {
     getValue: () => ed.getValue(),
-    setValue: (v) => ed.setValue(v, -1),
+    setValue: (v, context) => withChangeContext(context, () => ed.setValue(v, -1)),
     getSelection: () => {
       const range = ed.getSelectionRange();
       return {
@@ -193,15 +328,15 @@ function aceOps(target: HTMLElement): EditorOps {
       const ep = indexToPos(e);
       ed.getSelection().setSelectionRange(new Range(sp.row, sp.column, ep.row, ep.column));
     },
-    replaceRange: (s, e, v) => {
+    replaceRange: (s, e, v, context) => {
       const sp = indexToPos(s);
       const ep = indexToPos(e);
       // Session-level replacement avoids focusing Ace or moving its current
       // selection while the visual editor flushes a background source edit.
-      session().replace({ start: sp, end: ep }, v);
+      withChangeContext(context, () => session().replace({ start: sp, end: ep }, v));
     },
-    replaceSelection: (v) => ed.insert(v),
-    insertAtCursor: (v) => ed.insert(v),
+    replaceSelection: (v, context) => withChangeContext(context, () => ed.insert(v)),
+    insertAtCursor: (v, context) => withChangeContext(context, () => ed.insert(v)),
     undo: () => ed.undo(),
     redo: () => ed.redo(),
     focus: () => ed.focus(),
@@ -280,6 +415,49 @@ function getPagePath(): PagePathResult {
   return { locale: String(page.locale ?? ''), path: String(page.path ?? ''), isNew: page.id === 0 };
 }
 
+/**
+ * Wiki.js' editor-markdown component scroll-syncs its preview container to
+ * the CodeMirror cursor line after every content change and on cursor
+ * activity. Background source writes from the visual editor carry the 'fwa'
+ * change origin, and syncing on those yanks the rendered document away from
+ * where the user is typing. Wrap the component's scrollSync so it ignores
+ * calls made shortly after an extension-originated change, while keeping the
+ * native follow-the-cursor behaviour for the user's own CodeMirror edits.
+ */
+const SCROLL_SYNC_GUARD_MS = 2000;
+let scrollSyncSuppressedUntil = 0;
+
+function suppressWikiScrollSync(): void {
+  scrollSyncSuppressedUntil = Date.now() + SCROLL_SYNC_GUARD_MS;
+}
+
+function findMarkdownEditorVm(vm: any, depth = 0): any {
+  if (!vm || depth > 20) return null;
+  if (typeof vm.scrollSync === 'function' && vm.cm) return vm;
+  for (const child of vm.$children ?? []) {
+    const found = findMarkdownEditorVm(child, depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
+function guardWikiScrollSync(): void {
+  const appEl = document.getElementById('app') as (HTMLElement & { __vue__?: any }) | null;
+  const vm = findMarkdownEditorVm(appEl?.__vue__);
+  if (!vm) throw new Error('Wiki.js markdown editor component not found');
+  if (vm.__fwaScrollSyncGuarded) return;
+  vm.__fwaScrollSyncGuarded = true;
+
+  vm.cm.on('change', (_cm: unknown, change: any) => {
+    if (change?.origin === 'fwa') suppressWikiScrollSync();
+  });
+  const original = vm.scrollSync.bind(vm);
+  vm.scrollSync = (...args: unknown[]) => {
+    if (Date.now() < scrollSyncSuppressedUntil) return;
+    original(...args);
+  };
+}
+
 function opsFor(kind: string): EditorOps {
   const target = targetElement();
   switch (kind) {
@@ -296,8 +474,12 @@ function opsFor(kind: string): EditorOps {
   }
 }
 
-function emitEditorChange(target: HTMLElement): void {
-  target.dispatchEvent(new CustomEvent('fwa:editor-change', { bubbles: true }));
+function emitEditorChange(target: HTMLElement, context: EditorMutationContext | undefined = activeChangeContext ?? undefined): void {
+  const detail = {
+    origin: context?.origin ?? 'native',
+    transactionId: context?.transactionId,
+  };
+  target.dispatchEvent(new CustomEvent('fwa:editor-change', { bubbles: true, detail }));
 }
 
 /**
@@ -316,7 +498,13 @@ function watchEditorChanges(kind: string): void {
         : (target.closest('.CodeMirror') ?? target.querySelector('.CodeMirror'));
       const cm = cmEl?.CodeMirror;
       if (!cm) throw new Error('CodeMirror 5 instance not found on element');
-      cm.on('change', () => emitEditorChange(target));
+       cm.on('change', (_cm: unknown, change: any) => {
+         const context = activeChangeContext;
+         if (change?.origin !== 'fwa' || !context?.suppressPreviewRender) {
+           releaseWikiProjectionGuards(cm);
+         }
+         emitEditorChange(target, context ?? (change?.origin === 'fwa' ? { origin: 'projection' } : undefined));
+       });
       break;
     }
     case 'codemirror6': {
@@ -337,7 +525,7 @@ function watchEditorChanges(kind: string): void {
       });
       const model = editor?.getModel?.();
       if (!model?.onDidChangeContent) throw new Error('Monaco editor instance not found');
-      model.onDidChangeContent(() => emitEditorChange(target));
+       model.onDidChangeContent(() => emitEditorChange(target));
       break;
     }
     case 'ace': {
@@ -387,7 +575,12 @@ async function handleRequest(node: HTMLElement): Promise<void> {
       sendResponse(node, { id, ok: true, value: null });
       return;
     }
-    const { kind, value, start, end } = req.args ?? {};
+    if (req.op === 'guardScrollSync') {
+      guardWikiScrollSync();
+      sendResponse(node, { id, ok: true, value: null });
+      return;
+    }
+     const { kind, value, start, end, context } = req.args ?? {};
     const ops = opsFor(String(kind));
     let result: unknown;
     switch (req.op) {
@@ -395,7 +588,7 @@ async function handleRequest(node: HTMLElement): Promise<void> {
         result = ops.getValue();
         break;
       case 'setValue':
-        ops.setValue(String(value));
+         ops.setValue(String(value), context);
         break;
       case 'getSelection':
         result = ops.getSelection();
@@ -404,13 +597,13 @@ async function handleRequest(node: HTMLElement): Promise<void> {
         ops.setSelection(Number(start), Number(end));
         break;
       case 'replaceRange':
-        ops.replaceRange(Number(start), Number(end), String(value));
+         ops.replaceRange(Number(start), Number(end), String(value), context);
         break;
       case 'replaceSelection':
-        ops.replaceSelection(String(value));
+         ops.replaceSelection(String(value), context);
         break;
       case 'insertAtCursor':
-        ops.insertAtCursor(String(value));
+         ops.insertAtCursor(String(value), context);
         break;
       case 'undo':
         ops.undo();
@@ -440,3 +633,7 @@ async function handleRequest(node: HTMLElement): Promise<void> {
   node.setAttribute('data-fwa-bridge-ready', '1');
   node.addEventListener('fwa:bridge-request', () => void handleRequest(node as HTMLElement));
 })();
+
+// Keep the page bridge importable by the type-checker and integration tests.
+// Vite still emits this entry as an IIFE for the injected page-world script.
+export {};

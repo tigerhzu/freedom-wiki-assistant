@@ -1,40 +1,42 @@
 # 疑難排解
 
-## 擴充功能沒有出現在 Wiki 編輯頁
+## Wiki 頁面沒有工具入口
 
-1. 確認已在 `edge://extensions` 或 `chrome://extensions` 啟用擴充功能。
-2. 若從原始碼建置，確認 `.env` 的 `VITE_WIKI_ORIGIN` 與實際 Wiki 網域相同，然後重新執行 `npm run build`。
-3. 在擴充功能頁面按重新載入，再重新整理 Wiki 編輯頁。
-4. 確認網址為 Wiki.js 編輯頁，例如 `/e/en/...`。
+1. 確認擴充功能已啟用，且載入的是含 `manifest.json` 的解壓縮資料夾。
+2. 公開 Release 預設使用 `wiki.example.invalid`，必須先執行 `Configure-Wiki.ps1 -WikiOrigin …`；原始碼建置則檢查 `.env` 的 `VITE_WIKI_ORIGIN`。
+3. 設定或建置後，在擴充功能頁按「重新載入」，再重新整理 Wiki。
+4. 編輯功能需要 Wiki.js 的 `/e/…` Markdown 編輯頁，工具列位於原生 SAVE 附近。網站若修改了編輯器 DOM，偵測可能需要調整。
 
-## 看不到 Classic / Future 按鈕
+## 安裝包有 manifest，但仍指向錯誤網站
 
-按重新載入擴充功能後，重新整理 Wiki 編輯頁。按鈕會放在 Wiki.js 原生 `SAVE / PAGE / CLOSE` 操作列前方；若網站更新了編輯器版面，請回報目前畫面與網址格式。
+只改 manifest 無法更新編譯程式內的 Wiki origin。請對解壓縮的發行包執行完整設定腳本；若要更換設定，也可重新執行。腳本僅接受純 HTTPS origin，不含 `/e/…`、`/v1`、帳密或查詢參數。操作方式見 [安裝指南](INSTALL.md)。
 
-## Future 中按 Save 沒有保存
+## 按 SAVE 後沒有儲存
 
-Future 會使用 Wiki.js 原生 `SAVE` 按鈕保存。請確認：
+視覺編輯會先完成 Markdown 同步，再呼叫 Wiki.js 原生儲存。若出現「同步尚未收斂」或衝突提示，內容仍留在目前工作副本；先保留需要的文字，檢查原始碼，不要直接重新整理。
 
-- 仍在編輯頁而不是閱讀頁。
-- 沒有圖片正在上傳。
-- 如果剛從左側 Markdown 編輯器修改內容，請等右側預覽完成重新同步後再於 Future 繼續輸入。
+確認圖片已上傳完成、Wiki 登入沒有過期、帳號有編輯權限，並查看 Wiki.js 自己的錯誤訊息。擴充功能把內容交給原生 SAVE，不代表伺服器已保存成功。
 
-可以先切回 Classic 確認 Markdown 是否已更新，再按原生 `SAVE`。
+## 圖片上傳或資料庫操作失敗
 
-## Future 的 emoji 或圖片大小不正確
+確認帳號有目標資料夾的 Assets 上傳／建立／管理權限，檔案是支援的圖片格式且未超過 5 MB。可改用手動選取資料夾，或先用 Wiki.js 原生圖片介面檢查同一權限是否可用。
 
-請先更新到最新版擴充功能並重新載入頁面。Future 會把 Wiki.js 顯示用的 Twemoji SVG 還原為 Unicode emoji；若舊內容已儲存成 `/_assets/svg/twemoji/` 圖片，進入 Future 後重新儲存一次即可修復。
+若出現 Base64 文字，檢查設定頁「圖片剪貼簿上傳」是否啟用，並更新／重新載入擴充功能。刪除資產會影響其他引用該 URL 的頁面；移除文章中的圖片引用與刪除資產是不同操作。
 
-一般圖片可在 Future 中對圖片按右鍵，使用「原始尺寸」或選擇新的尺寸。
+## 圖片樣式或 emoji 不正確
 
-## 貼上圖片變成很長的 Base64 文字
+在圖片上按右鍵，使用原始尺寸或重新設定寬度；部分外觀需要 Wiki.js 允許相應 HTML 樣式。程式會辨識 Wiki.js 顯示用的 Twemoji 圖片並盡量還原 Unicode emoji；若舊文章已改寫過圖片來源，先比對原始 Markdown 再儲存，不要假設所有非標準內容都能自動還原。
 
-確認設定頁的「圖片剪貼簿上傳」已啟用。Future 與 Classic 都會用 Wiki.js Assets 上傳流程處理圖片。若仍出現 Base64，請重新載入擴充功能並確認該圖片格式為 PNG、JPG、JPEG、WEBP 或 GIF。
+## AI Provider 不能切換或呼叫失敗
 
-## 圖片上傳失敗
+Provider 設定採單一啟用：先「移除設定」再改選另一個。Ornith Base URL 必須是 HTTPS 且以 `/v1` 結尾，模型名稱與 Key 皆需填寫；服務 origin 也要先加入發行包的權限設定。Azure 請確認 endpoint、deployment、API version 與 Key。
 
-確認目前帳號有 Wiki.js Assets 的建立資料夾與上傳權限。第一次上傳時會依設定建議目前頁面對應的資料夾；你可以改用選擇資料夾按鈕指定目標。
+401／403 通常需檢查憑證與服務權限；逾時需檢查服務可達性和處理內容大小。過長且不能安全切開的單一程式碼區塊或表格需手動分段。差異檢閱中的「可能遺失」警告須人工確認，AI 不保證保留所有語意。
 
-## Future 的右鍵選單沒有出現
+## 更新後設定不見
 
-文字功能需要先反白文字再按右鍵；圖片功能則直接在圖片上按右鍵。未選取任何內容時，保留瀏覽器原生右鍵選單。
+不同載入資料夾可能產生不同擴充功能 ID，本機 storage 不會自動共用。用更新前匯出的設定備份還原，重新輸入 API Key。Wiki 與 HaloPSA 的設定也各自獨立。
+
+## 本機預覽正常，正式網站仍有問題
+
+`npm run preview:studio` 使用本機範例、簡化 renderer 與模擬瀏覽器 API，並未驗證正式登入、Assets、AI 網路或 Wiki.js 真正儲存。回報問題時附上瀏覽器版本、擴充功能版本、操作步驟及去識別化的最小 Markdown 範例；不要貼入 API Key、Cookie 或私人文章內容。

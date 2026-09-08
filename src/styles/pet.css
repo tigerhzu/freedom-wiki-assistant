@@ -1,0 +1,17 @@
+/* The familiar pet remains a sprite, separate from the blue utility chrome. */
+.fwa-pet {
+  position: fixed; right: 20px; bottom: 18px; z-index: 2147483100;
+  display: block; width: auto; height: auto; min-width: 72px; min-height: 72px;
+  padding: 0; border: 0; border-radius: 14px; background: transparent;
+  cursor: grab; touch-action: none; user-select: none; line-height: 0;
+  filter: drop-shadow(0 3px 2px #13173325); transform: none;
+}
+.fwa-pet[hidden] { display: none !important; }
+.fwa-pet:hover { background: transparent; transform: none; }
+.fwa-pet:focus-visible { outline: 2px solid #287dea; outline-offset: 4px; }
+.fwa-pet.is-dragging { cursor: grabbing; transform: none; filter: drop-shadow(0 6px 3px #13173335); }
+.fwa-pet-sprite { display: block; width: 72px; height: 72px; background-repeat: no-repeat; pointer-events: none; image-rendering: pixelated; }
+.fwa-pet-fallback { display: grid; place-items: center; width: 72px; height: 72px; color: #287dea; font-size: 42px; line-height: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .fwa-pet, .fwa-pet:hover { transition: none; transform: none; }
+}

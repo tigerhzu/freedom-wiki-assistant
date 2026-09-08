@@ -272,7 +272,7 @@
   transition: width 0.15s ease;
 }
 
-/* ── pet widget (模板 / 檢閱照片 / 客戶 entry point) ── */
+/* ── pet widget (客戶 entry point) ── */
 
 .fwa-pet {
   position: fixed;
@@ -2302,6 +2302,10 @@
   padding: 28px 28px 0;
 }
 
+.fwa-onboarding-modal .fwa-modal-header.fwa-onboarding-headerless {
+  justify-content: flex-end;
+}
+
 .fwa-onboarding-header-title {
   min-width: 0;
 }
@@ -2486,6 +2490,27 @@
   display: grid;
   gap: 14px;
   grid-template-columns: 1fr;
+}
+
+.fwa-onboarding-provider-group {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid #d2ddea;
+  border-radius: 10px;
+}
+
+.fwa-onboarding-provider-group legend {
+  padding: 0 6px;
+  color: #12335d;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.fwa-onboarding-provider-group:disabled {
+  opacity: 0.52;
+  background: #eef1f5;
 }
 
 .fwa-onboarding-field {
@@ -3278,16 +3303,16 @@
   background: #f5f8fb;
   border: 1px solid #c8d4e1;
   border-radius: 14px;
-  bottom: 14px;
+  bottom: 40px;
   box-shadow: 0 12px 26px rgba(20, 42, 68, 0.2);
   display: flex;
   flex-direction: column;
   left: 20%;
-  max-width: 430px;
+  max-width: 280px;
   overflow: hidden;
   position: absolute;
-  right: 14px;
-  top: 14px;
+  right: 40px;
+  top: 40px;
   z-index: 3;
 }
 
@@ -3438,42 +3463,6 @@
   outline-offset: 3px;
 }
 
-.fwa-customer-guide-pet-callout {
-  bottom: 104px;
-  color: #b34b53;
-  display: flex;
-  flex-direction: column;
-  font-weight: 800;
-  left: 13px;
-  position: absolute;
-  text-align: center;
-  z-index: 6;
-}
-
-.fwa-customer-guide-callout-label {
-  background: #fff2bd;
-  border: 1px solid #f1d56d;
-  border-radius: 999px;
-  color: #604a00;
-  font-size: 10px;
-  padding: 4px 7px;
-  white-space: nowrap;
-}
-
-.fwa-customer-guide-callout-arrow {
-  font-size: 24px;
-  line-height: 0.9;
-  transform: translate(25px, 1px);
-}
-
-.fwa-customer-guide-status {
-  color: #187749;
-  font-size: 12px;
-  line-height: 1.45;
-  min-height: 18px;
-  padding-top: 2px;
-}
-
 @media (max-width: 700px) {
   .fwa-customer-guide-demo { min-height: 410px; }
 
@@ -3510,8 +3499,4 @@
     left: 18px;
   }
 
-  .fwa-customer-guide-pet-callout {
-    bottom: 89px;
-    left: 15px;
-  }
 }

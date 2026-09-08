@@ -1,13 +1,11 @@
-import topbarGuideHtml from '../onboarding-guides/freedom-wiki-topbar-guide.html?raw';
-import editorToolbarGuideHtml from '../onboarding-guides/freedom-wiki-editor-toolbar-guide.html?raw';
 import { wikiConfig } from '../config/wiki-config';
-import { sendMessage } from '../shared/messages';
+import { sendMessage, type ActivateFutureResponse } from '../shared/messages';
 import { getSettings, saveSettings } from '../shared/storage';
-import type { Settings } from '../shared/types';
+import { ORNITH_DEFAULT_BASE_URL, ORNITH_DEFAULT_MODEL, type AiProvider, type Settings } from '../shared/types';
 import { el, openModal, type ModalHandle } from './ui';
 
 /** Increment this whenever the onboarding content or sequence changes. */
-export const ONBOARDING_VERSION = 4;
+export const ONBOARDING_VERSION = 8;
 
 const ONBOARDING_PAGE_MARKER = 'data-fwa-onboarding-page';
 
@@ -15,35 +13,34 @@ interface OnboardingStep {
   label: string;
   title: string;
   hint: string;
-  render(settings: Settings): HTMLElement;
+  showHeading?: boolean;
+  render(settings: Settings, context: OnboardingRenderContext): HTMLElement;
   save?(section: HTMLElement): Promise<Partial<Settings> | null>;
+}
+
+interface OnboardingRenderContext {
+  requestFutureMode(): void;
 }
 
 const steps: OnboardingStep[] = [
   {
-    label: '客戶',
-    title: '1. 點擊 pet 管理客戶',
-    hint: '點擊 Wiki 左下角的 pet 開啟客戶面板，就能新增、編輯或移除客戶。',
+    label: 'Pet 與客戶',
+    title: 'Pet 與客戶捷徑',
+    hint: '點擊 Pet 開啟客戶懸浮視窗。Pet 可拖曳移動，或在「設定 → 外觀」選擇顯示與隱藏。',
     render: renderCustomerStep,
   },
   {
-    label: 'API',
-    title: '2. 設定 AI API',
-    hint: '沒有 API Key 可以先略過，之後再到 Extension 設定補上；金鑰只儲存在本機瀏覽器。',
+    label: '連接 AI',
+    title: '連接 AI 排版服務',
+    hint: '選擇你的 AI 服務，或先略過。沒有 API 金鑰也能使用所有一般編輯工具。',
     render: renderApiStep,
     save: saveApiStep,
   },
   {
-    label: '上方控制列',
-    title: '3. Wiki 上方控制列',
-    hint: '這裡示範 Wiki 上方的顏色、拓譜與設定入口；滑過或點擊按鈕可以查看功能提示。',
-    render: () => buildGuide(topbarGuideHtml, 'topbar'),
-  },
-  {
-    label: '編輯工具列',
-    title: '4. Wiki 編輯器工具列',
-    hint: '這裡示範模板、AI 排版與 Classic／Future 模式；箭頭會指出目前頁面上的控制位置。',
-    render: () => buildGuide(editorToolbarGuideHtml, 'editor-toolbar'),
+    label: '開始編輯',
+    title: '試用視覺編輯',
+    hint: '試著修改下方的示範內容，再切換原始碼查看。實際文章請使用 Wiki 的「儲存」按鈕保存。',
+    render: (_settings, context) => renderEditorStep(context.requestFutureMode),
   },
 ];
 
@@ -56,7 +53,7 @@ export async function maybeShowOnboarding(): Promise<void> {
     if (settings.onboardingVersion >= ONBOARDING_VERSION) return;
     await sendMessage({ type: 'fwa:open-onboarding' });
   } catch (error) {
-    console.warn('[FWA] 無法開啟首次登入提示分頁', error);
+    console.warn('[FWA] 無法開啟Wiki 使用指南分頁', error);
   }
 }
 
@@ -85,35 +82,33 @@ export async function openOnboarding(force = false): Promise<boolean> {
     }
 
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const modal = openModal('首次登入提示', 'fwa-onboarding-host', 'fwa-onboarding-modal', !standalonePage);
+    const modal = openModal('Wiki 使用指南', 'fwa-onboarding-host', 'fwa-onboarding-modal', !standalonePage);
     activeOnboarding = modal;
     modal.layer.classList.add('fwa-onboarding-backdrop');
     if (standalonePage) modal.layer.classList.add('fwa-onboarding-page-layer');
     modal.element.setAttribute('role', 'dialog');
     modal.element.setAttribute('aria-modal', 'true');
-    modal.element.setAttribute('aria-labelledby', 'fwa-onboarding-dialog-title');
+    modal.element.setAttribute('aria-label', 'Wiki 使用指南');
+    modal.element.removeAttribute('aria-labelledby');
 
     const close = el('button', {
       class: 'fwa-onboarding-close',
       type: 'button',
-      'aria-label': '關閉首次登入提示',
+      'aria-label': '關閉 Wiki 使用指南',
       text: '×',
     });
-    const title = el('h1', { id: 'fwa-onboarding-dialog-title', text: '首次登入提示' });
     const header = modal.element.querySelector<HTMLElement>('.fwa-modal-header');
-    header?.replaceChildren(el('div', { class: 'fwa-onboarding-header-title' }, [title]), close);
+    header?.replaceChildren(el('div', { class: 'fwa-onboarding-header-title' }, [el('span', { class: 'fwa-studio-kicker', text: '開始使用 Wiki' })]), close);
 
-    const intro = el('p', {
-      class: 'fwa-onboarding-intro',
-      text: '用四個簡短步驟完成 Wiki 客戶、AI 與編輯工具設定；每一步都可以略過。',
-    });
+
     const progress = buildProgress();
     const content = el('div', { class: 'fwa-onboarding-step-stack' });
     const sections = steps.map((_step, index) => {
       const section = el('section', {
         class: 'fwa-onboarding-step',
-        'aria-labelledby': `fwa-onboarding-step-title-${index}`,
       });
+      if (_step.showHeading === false) section.setAttribute('aria-label', _step.title);
+      else section.setAttribute('aria-labelledby', `fwa-onboarding-step-title-${index}`);
       content.append(section);
       return section;
     });
@@ -122,19 +117,20 @@ export async function openOnboarding(force = false): Promise<boolean> {
       role: 'status',
       'aria-live': 'polite',
     });
-    modal.body.replaceChildren(intro, progress, content, status);
+    modal.body.replaceChildren(progress, content, status);
 
     const previous = el('button', { class: 'fwa-btn', type: 'button', text: '上一步' });
     const skip = el('button', { class: 'fwa-btn', type: 'button', text: '略過這一步' });
-    const next = el('button', { class: 'fwa-btn fwa-btn-primary', type: 'button', text: '儲存並繼續' });
+    const next = el('button', { class: 'fwa-btn fwa-btn-primary', type: 'button', text: '下一步 →' });
     previous.setAttribute('aria-label', '回到上一步');
     skip.setAttribute('aria-label', '略過目前這一步');
     next.setAttribute('aria-label', '儲存目前設定並前往下一步');
-    modal.footer.setAttribute('aria-label', '首次登入提示操作');
+    modal.footer.setAttribute('aria-label', 'Wiki 使用指南操作');
     modal.footer.append(previous, skip, next);
 
     let currentStep = 0;
     let busy = false;
+    let futureActivating = false;
     let finalizing = false;
     let completionShown = false;
     let closing = false;
@@ -150,7 +146,38 @@ export async function openOnboarding(force = false): Promise<boolean> {
       const latest = await getSettings();
       const merged = { ...latest, ...patch };
       await saveSettings(merged);
-      settings = merged;
+      settings = await getSettings();
+    };
+
+    const requestFutureMode = (): void => {
+      if (futureActivating || finalizing || completionShown) return;
+      futureActivating = true;
+      previous.disabled = true;
+      skip.disabled = true;
+      next.disabled = true;
+      setStatus('正在開啟視覺編輯…');
+      void sendMessage({ type: 'fwa:activate-future' })
+        .then(async (rawResponse) => {
+          const response = rawResponse as ActivateFutureResponse | undefined;
+          if (!response?.ok) {
+            setStatus(response?.error ?? '目前無法開啟視覺編輯，請重新整理後再試。', true);
+            return;
+          }
+          await persistPatch({ onboardingVersion: ONBOARDING_VERSION });
+          closing = true;
+          modal.close();
+          closeOnboardingPage();
+        })
+        .catch((error) => {
+          setStatus(`視覺編輯開啟失敗：${error instanceof Error ? error.message : String(error)}`, true);
+        })
+        .finally(() => {
+          if (closing) return;
+          futureActivating = false;
+          previous.disabled = currentStep === 0 || busy;
+          skip.disabled = busy;
+          next.disabled = busy;
+        });
     };
 
     const saveCurrentStep = async (): Promise<boolean> => {
@@ -166,7 +193,9 @@ export async function openOnboarding(force = false): Promise<boolean> {
       if (finalizing || completionShown) return;
       finalizing = true;
       try {
-        if (!(await saveCurrentStep())) {
+        const optionalApiIsBlank = currentStep === 1
+          && !sections[currentStep].querySelector<HTMLSelectElement>('#fwa-onboarding-ai-provider')?.value;
+        if (!optionalApiIsBlank && !(await saveCurrentStep())) {
           finalizing = false;
           return;
         }
@@ -191,8 +220,8 @@ export async function openOnboarding(force = false): Promise<boolean> {
       modal.body.replaceChildren(
         el('div', { class: 'fwa-onboarding-complete-view' }, [
           el('div', { class: 'fwa-onboarding-complete-icon', 'aria-hidden': 'true', text: '✓' }),
-          el('h2', { tabindex: '-1', text: '首次登入提示已完成' }),
-          el('p', { text: '之後可從 Extension 的「設定」重新開啟此頁面。' }),
+          el('h2', { tabindex: '-1', text: '設定完成' }),
+          el('p', { text: '回到 Wiki 即可開始使用。之後可從設定重新開啟指南。' }),
           el('div', { class: 'fwa-onboarding-complete-actions' }, [
             (() => {
               const button = el('button', { class: 'fwa-btn fwa-btn-primary', type: 'button', text: '開啟完整設定' });
@@ -220,7 +249,7 @@ export async function openOnboarding(force = false): Promise<boolean> {
       );
       modal.footer.replaceChildren();
       close.setAttribute('aria-label', '關閉完成提示');
-      window.requestAnimationFrame(() => modal.element.querySelector<HTMLElement>('.fwa-onboarding-complete-view h2')?.focus());
+      window.requestAnimationFrame(() => modal.element.querySelector<HTMLElement>('.fwa-onboarding-complete-view h2')?.focus({ preventScroll: true }));
     };
 
     const renderCurrentStep = (): void => {
@@ -229,11 +258,14 @@ export async function openOnboarding(force = false): Promise<boolean> {
         const isCurrent = index === currentStep;
         section.hidden = !isCurrent;
         if (!isCurrent) return;
-        section.replaceChildren(
-          el('h2', { id: `fwa-onboarding-step-title-${index}`, tabindex: '-1', text: step.title }),
-          el('p', { class: 'fwa-onboarding-step-hint', text: step.hint }),
-          step.render(settings),
-        );
+        const stepContent: Node[] = [step.render(settings, { requestFutureMode })];
+        if (step.showHeading !== false) {
+          stepContent.unshift(
+            el('h2', { id: `fwa-onboarding-step-title-${index}`, tabindex: '-1', text: step.title }),
+            el('p', { class: 'fwa-onboarding-step-hint', text: step.hint }),
+          );
+        }
+        section.replaceChildren(...stepContent);
       });
       progress.querySelectorAll<HTMLElement>('li').forEach((item, index) => {
         item.classList.toggle('is-current', index === currentStep);
@@ -246,45 +278,25 @@ export async function openOnboarding(force = false): Promise<boolean> {
       previous.disabled = currentStep === 0 || busy;
       skip.disabled = busy;
       next.disabled = busy;
-      next.textContent = currentStep === steps.length - 1 ? '完成設定' : '儲存並繼續';
+      next.textContent = currentStep === steps.length - 1 ? '完成，開始使用' : currentStep === 1 ? '儲存並繼續 →' : '下一步 →';
       skip.textContent = currentStep === steps.length - 1 ? '略過並完成' : '略過這一步';
-      next.setAttribute('aria-label', currentStep === steps.length - 1 ? '完成首次登入提示' : '儲存目前設定並前往下一步');
-      skip.setAttribute('aria-label', currentStep === steps.length - 1 ? '略過導覽並完成首次登入提示' : '略過目前這一步');
+      next.setAttribute('aria-label', currentStep === steps.length - 1 ? '完成 Wiki 使用指南' : currentStep === 1 ? '儲存目前設定並前往下一步' : '前往下一步');
+      skip.setAttribute('aria-label', currentStep === steps.length - 1 ? '略過導覽並完成 Wiki 使用指南' : '略過目前這一步');
       setStatus();
-      window.requestAnimationFrame(() => modal.element.querySelector<HTMLElement>(`#fwa-onboarding-step-title-${currentStep}`)?.focus());
+      window.requestAnimationFrame(() => modal.element.querySelector<HTMLElement>(`#fwa-onboarding-step-title-${currentStep}`)?.focus({ preventScroll: true }));
     };
-
-    const trapFocus = (event: KeyboardEvent): void => {
-      if (event.key !== 'Tab') return;
-      const focusable = Array.from(
-        modal.element.querySelectorAll<HTMLElement>(
-          'button:not([disabled]):not([hidden]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
-        ),
-      ).filter((node) => !node.hidden);
-      if (focusable.length === 0) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener('keydown', trapFocus, true);
 
     modal.onClose(() => {
       activeOnboarding = null;
-      document.removeEventListener('keydown', trapFocus, true);
       if (previousFocus?.isConnected) previousFocus.focus();
       if (!closing && !completionShown) {
         closing = true;
         void (async () => {
           try {
-            if (await saveCurrentStep()) await persistPatch({ onboardingVersion: ONBOARDING_VERSION });
+            await saveCurrentStep();
+            await persistPatch({ onboardingVersion: ONBOARDING_VERSION });
           } catch (error) {
-            console.warn('[FWA] 無法保存首次登入提示狀態', error);
+            console.warn('[FWA] 無法保存Wiki 使用指南狀態', error);
           }
         })();
       }
@@ -356,11 +368,12 @@ export async function openOnboarding(force = false): Promise<boolean> {
 function buildProgress(): HTMLElement {
   const progress = el('ol', {
     class: 'fwa-onboarding-progress',
-    'aria-label': '首次登入提示進度',
+    'aria-label': 'Wiki 使用指南進度',
   });
   steps.forEach((step, index) => {
     progress.append(
       el('li', { class: index === 0 ? 'is-current' : '', 'aria-current': index === 0 ? 'step' : '' }, [
+        el('span', { class: 'fwa-onboarding-progress-dot', 'aria-hidden': 'true', text: String(index + 1).padStart(2, '0') }),
         el('span', { class: 'fwa-onboarding-progress-label', text: step.label }),
       ]),
     );
@@ -369,186 +382,157 @@ function buildProgress(): HTMLElement {
 }
 
 function renderCustomerStep(): HTMLElement {
-  const drawer = el('div', { class: 'fwa-customer-guide-drawer' });
-  const pet = el('button', {
-    class: 'fwa-customer-guide-pet',
-    type: 'button',
-    'aria-label': '點擊 pet 開啟或關閉客戶面板',
-    'aria-expanded': 'true',
-    title: '點擊 pet 開啟或關閉客戶面板',
-  });
-  const status = el('div', {
-    class: 'fwa-customer-guide-status',
-    role: 'status',
-    'aria-live': 'polite',
-    text: '示意操作：點擊 pet 開／關面板，或用面板按鈕增減客戶。',
-  });
-
-  const demoCustomers = [
-    { name: 'ACB', pageCount: '1 個常用頁面' },
-    { name: 'ATT', pageCount: '尚無常用頁面' },
-    { name: 'APR', pageCount: '1 個常用頁面' },
+  const items: Array<[string, string, string]> = [
+    ['01', 'Pet 與客戶', '點擊 Pet 開啟客戶視窗，依資料夾整理捷徑、加入目前頁面，也可隱藏 Pet。'],
+    ['02', '圖片與文件模板', '拖入或貼上圖片完成上傳；用模板快速開始一篇文件。'],
+    ['03', '工作台與格式工具', '頂部工作台或 Ctrl / ⌘ + Shift + K 開啟工具。反白文字後按右鍵調整格式。'],
   ];
-
-  const renderDrawer = (): void => {
-    const addCustomer = el('button', {
-      class: 'fwa-btn fwa-btn-primary fwa-customer-guide-add',
-      type: 'button',
-      text: '＋ 新增客戶',
-    });
-    const count = el('span', { class: 'fwa-customer-guide-count', text: `${demoCustomers.length} 位` });
-    const list = el('div', { class: 'fwa-customer-guide-list' });
-
-    const renderRows = (): void => {
-      list.replaceChildren(
-        ...demoCustomers.map((customer, index) => {
-          const remove = el('button', {
-            class: 'fwa-customer-guide-remove',
-            type: 'button',
-            'aria-label': `移除示意客戶 ${customer.name}`,
-            text: '×',
-          });
-          remove.addEventListener('click', () => {
-            demoCustomers.splice(index, 1);
-            renderRows();
-            count.textContent = `${demoCustomers.length} 位`;
-            status.textContent = `已示範移除客戶「${customer.name}」；實際操作會更新你的客戶清單。`;
-          });
-          const edit = el('button', {
-            class: 'fwa-customer-guide-edit',
-            type: 'button',
-            'aria-label': `編輯示意客戶 ${customer.name}`,
-            text: '✎',
-          });
-          edit.addEventListener('click', () => {
-            status.textContent = `實際操作點擊鉛筆即可編輯「${customer.name}」的名稱與 Wiki 路徑。`;
-          });
-          return el('div', { class: 'fwa-customer-guide-row' }, [
-            el('span', { class: 'fwa-customer-guide-drag', 'aria-hidden': 'true', text: '⠿' }),
-            el('div', { class: 'fwa-customer-guide-row-copy' }, [
-              el('strong', { text: customer.name }),
-              el('span', { text: customer.pageCount }),
-            ]),
-            edit,
-            remove,
-          ]);
-        }),
-      );
-    };
-
-    addCustomer.addEventListener('click', () => {
-      const nextNumber = demoCustomers.length + 1;
-      const name = `NEW${nextNumber}`;
-      demoCustomers.push({ name, pageCount: '尚無常用頁面' });
-      renderRows();
-      count.textContent = `${demoCustomers.length} 位`;
-      status.textContent = `已示範新增客戶「${name}」；實際操作會開啟新增客戶表單。`;
-    });
-
-    drawer.replaceChildren(
-      el('div', { class: 'fwa-customer-guide-toolbar' }, [
-        addCustomer,
-        el('button', { class: 'fwa-customer-guide-secondary', type: 'button', text: '＋ 新增這個介面' }),
-        el('button', { class: 'fwa-customer-guide-secondary', type: 'button', text: '＋ 新增資料夾' }),
-      ]),
-      el('div', { class: 'fwa-customer-guide-section-heading' }, [
-        el('span', { text: '▰　未分類' }),
-        count,
-      ]),
-      list,
-    );
-    renderRows();
-  };
-
-  const setDrawerOpen = (open: boolean): void => {
-    drawer.hidden = !open;
-    pet.setAttribute('aria-expanded', String(open));
-    status.textContent = open
-      ? '客戶面板已開啟：可以新增、編輯或移除客戶。'
-      : '面板已收起；再次點擊 pet 就能開啟客戶管理。';
-  };
-
-  pet.addEventListener('click', () => setDrawerOpen(drawer.hidden));
-  pet.style.backgroundImage = `url("${chrome.runtime.getURL('pet/claude-crab/spritesheet.png')}")`;
-  renderDrawer();
-
-  return el('div', { class: 'fwa-onboarding-form-card fwa-onboarding-customer-card' }, [
-    el('div', { class: 'fwa-onboarding-form-title', text: '點擊左下角的 pet，就能管理客戶' }),
-    el('p', {
-      class: 'fwa-onboarding-form-help',
-      text: '這是操作示意圖。實際在 Wiki 點擊 pet 後，可以新增客戶、編輯資料，或從客戶面板移除不需要的項目。',
-    }),
-    el('div', { class: 'fwa-customer-guide-demo' }, [
-      el('div', { class: 'fwa-customer-guide-wiki' }, [
-        el('div', { class: 'fwa-customer-guide-wiki-topbar' }, [
-          el('strong', { text: 'Freedom Systems Documentation site' }),
-          el('span', { text: 'Search...' }),
-        ]),
-        el('div', { class: 'fwa-customer-guide-wiki-body' }, [
-          el('div', { class: 'fwa-customer-guide-wiki-sidebar' }, [
-            el('span', { text: '⌂　Home' }),
-            el('span', { text: '⌁　Collaboration' }),
-            el('span', { text: '●　CSM' }),
-            el('span', { text: '⚒　Engineering' }),
-            el('span', { text: '≡　PM' }),
-          ]),
-          el('div', { class: 'fwa-customer-guide-wiki-content' }, [
-            el('span', { class: 'fwa-customer-guide-skeleton skeleton-title' }),
-            el('span', { class: 'fwa-customer-guide-skeleton skeleton-line' }),
-            el('span', { class: 'fwa-customer-guide-skeleton skeleton-line short' }),
-            el('span', { class: 'fwa-customer-guide-skeleton skeleton-block' }),
-          ]),
-        ]),
-      ]),
-      drawer,
-      el('div', { class: 'fwa-customer-guide-pet-callout' }, [
-        el('span', { class: 'fwa-customer-guide-callout-label', text: '點擊 pet' }),
-        el('span', { class: 'fwa-customer-guide-callout-arrow', 'aria-hidden': 'true', text: '↙' }),
-      ]),
-      pet,
+  const features = el('div', { class: 'fwa-studio-feature-grid' }, items.map(([number, title, copy]) =>
+    el('article', { class: 'fwa-studio-feature' }, [
+      el('span', { class: 'fwa-studio-feature-icon', 'aria-hidden': 'true', text: number }),
+      el('div', { class: 'fwa-studio-feature-copy' }, [el('h3', { text: title }), el('p', { text: copy })]),
     ]),
-    status,
+  ));
+  const list = el('div', { class: 'fwa-studio-workspace-list' });
+  const demoNames = ['產品文件', '客戶知識庫', '維運手冊'];
+  const renderList = (): void => {
+    list.replaceChildren(...demoNames.map((name) => el('div', { class: 'fwa-studio-workspace-row' }, [
+      el('span', { 'aria-hidden': 'true', text: '▤' }), el('span', { text: name }),
+      el('span', { class: 'fwa-studio-workspace-arrow', 'aria-hidden': 'true', text: '↗' }),
+    ])));
+  };
+  renderList();
+  const launcher = el('button', { class: 'fwa-btn fwa-btn-primary', type: 'button', 'aria-expanded': 'true', text: 'Pet · 客戶' });
+  const add = el('button', { class: 'fwa-btn', type: 'button', text: '＋ 加入示範頁面' });
+  const status = el('p', { class: 'fwa-studio-demo-note', role: 'status', 'aria-live': 'polite', text: '互動示範：點擊按鈕收合客戶視窗，或加入一個頁面。' });
+  const panel = el('div', { class: 'fwa-studio-workspace-panel' }, [list, add]);
+  launcher.addEventListener('click', () => {
+    panel.hidden = !panel.hidden;
+    launcher.setAttribute('aria-expanded', String(!panel.hidden));
+    status.textContent = panel.hidden ? '客戶視窗已收合，再點一次即可開啟。' : '客戶視窗已開啟。';
+  });
+  add.addEventListener('click', () => {
+    demoNames.push('我的新頁面');
+    renderList();
+    add.disabled = true;
+    status.textContent = '示範頁面已加入。實際客戶視窗會將捷徑保存在這個瀏覽器。';
+  });
+  return el('div', { class: 'fwa-studio-welcome' }, [features,
+    el('div', { class: 'fwa-studio-demo' }, [
+      el('div', { class: 'fwa-studio-demo-bar' }, [el('strong', { text: '客戶視窗操作示範' }), launcher]),
+      panel, status,
+    ]),
   ]);
 }
 
 function renderApiStep(settings: Settings): HTMLElement {
   const provider = el('select', { id: 'fwa-onboarding-ai-provider', 'aria-label': 'AI Provider' });
+  provider.append(el('option', { value: '', text: '請選擇 Provider' }));
+  provider.append(el('option', { value: 'ornith', text: 'Local Ornith' }));
   provider.append(el('option', { value: 'azure', text: 'Azure OpenAI' }));
-  provider.value = 'azure';
+  provider.value = settings.aiProvider;
+
+  const ornithBaseUrl = makeOnboardingInput(
+    'fwa-onboarding-ornith-base-url',
+    ORNITH_DEFAULT_BASE_URL,
+    settings.ornithBaseUrl,
+  );
+  const ornithModel = makeOnboardingInput(
+    'fwa-onboarding-ornith-model',
+    ORNITH_DEFAULT_MODEL,
+    settings.ornithModel,
+  );
+  const ornithApiKey = makeOnboardingInput('fwa-onboarding-ornith-api-key', '貼上 Ornith API Key', settings.ornithApiKey);
+  ornithApiKey.type = 'password';
+  ornithApiKey.autocomplete = 'new-password';
+  ornithApiKey.spellcheck = false;
 
   const endpoint = makeOnboardingInput('fwa-onboarding-azure-endpoint', 'https://your-resource.openai.azure.com', settings.azureEndpoint);
   const deployment = makeOnboardingInput('fwa-onboarding-azure-deployment', '例如：gpt-4.1 或自訂部署名稱', settings.azureDeployment);
   const apiVersion = makeOnboardingInput('fwa-onboarding-azure-api-version', '例如：2024-12-01-preview', settings.azureApiVersion);
   const apiKey = makeOnboardingInput('fwa-onboarding-azure-api-key', '貼上 Azure OpenAI API Key', settings.azureApiKey);
   apiKey.type = 'password';
-  apiKey.autocomplete = 'off';
+  apiKey.autocomplete = 'new-password';
   apiKey.spellcheck = false;
 
-  const toggle = el('button', { class: 'fwa-onboarding-key-toggle', type: 'button', text: '顯示' });
-  toggle.setAttribute('aria-label', '顯示或隱藏 Azure OpenAI API Key');
-  toggle.addEventListener('click', () => {
-    const hidden = apiKey.type === 'password';
-    apiKey.type = hidden ? 'text' : 'password';
-    toggle.textContent = hidden ? '隱藏' : '顯示';
-  });
+  const createToggle = (input: HTMLInputElement, label: string): HTMLButtonElement => {
+    const toggle = el('button', { class: 'fwa-onboarding-key-toggle', type: 'button', text: '顯示' });
+    toggle.setAttribute('aria-label', `顯示或隱藏 ${label} API Key`);
+    toggle.addEventListener('click', () => {
+      const hidden = input.type === 'password';
+      input.type = hidden ? 'text' : 'password';
+      toggle.textContent = hidden ? '隱藏' : '顯示';
+    });
+    return toggle;
+  };
+  const ornithToggle = createToggle(ornithApiKey, 'Ornith');
+  const azureToggle = createToggle(apiKey, 'Azure OpenAI');
 
-  const fields = el('div', { class: 'fwa-onboarding-api-fields' }, [
-    createOnboardingField('AI Provider', provider),
+  const ornithGroup = el('fieldset', { class: 'fwa-onboarding-provider-group' }, [
+    el('legend', { text: 'Local Ornith' }),
+    createOnboardingField('Ornith Base URL', ornithBaseUrl),
+    createOnboardingField('Ornith Model', ornithModel),
+    el('label', { class: 'fwa-onboarding-field', for: ornithApiKey.id }, [
+      el('span', { text: 'Ornith API Key' }),
+      el('div', { class: 'fwa-onboarding-input-with-action' }, [ornithApiKey, ornithToggle]),
+    ]),
+  ]) as HTMLFieldSetElement;
+
+  const azureGroup = el('fieldset', { class: 'fwa-onboarding-provider-group' }, [
+    el('legend', { text: 'Azure OpenAI' }),
     createOnboardingField('Azure Endpoint', endpoint),
     createOnboardingField('Azure Deployment Name', deployment),
     createOnboardingField('Azure API Version', apiVersion),
     el('label', { class: 'fwa-onboarding-field', for: apiKey.id }, [
       el('span', { text: 'Azure OpenAI API Key' }),
-      el('div', { class: 'fwa-onboarding-input-with-action' }, [apiKey, toggle]),
+      el('div', { class: 'fwa-onboarding-input-with-action' }, [apiKey, azureToggle]),
     ]),
+  ]) as HTMLFieldSetElement;
+
+  const lockStatus = createInlineStatus('api-provider-lock');
+  const locked: Exclude<AiProvider, ''> | '' = settings.ornithApiKey.trim()
+    ? 'ornith'
+    : settings.azureApiKey.trim()
+      ? 'azure'
+      : '';
+  const renderProvider = (): void => {
+    const selected = provider.value as AiProvider;
+    ornithGroup.disabled = selected !== 'ornith';
+    azureGroup.disabled = selected !== 'azure';
+    ornithGroup.hidden = selected !== 'ornith';
+    azureGroup.hidden = selected !== 'azure';
+    provider.disabled = !!locked;
+    lockStatus.textContent = locked
+      ? `已儲存 ${locked === 'ornith' ? 'Local Ornith' : 'Azure OpenAI'} API Key；請到完整設定頁移除後才能切換。`
+      : selected
+        ? ''
+        : '請先選擇一個 Provider。';
+  };
+  provider.addEventListener('change', renderProvider);
+
+  const fields = el('div', { class: 'fwa-onboarding-api-fields' }, [
+    createOnboardingField('AI Provider', provider),
+    ornithGroup,
+    azureGroup,
+    lockStatus,
   ]);
+  renderProvider();
   return el('div', { class: 'fwa-onboarding-form-card fwa-onboarding-api-card' }, [fields, createInlineStatus('api')]);
 }
 
-async function saveApiStep(section: HTMLElement): Promise<Partial<Settings>> {
+async function saveApiStep(section: HTMLElement): Promise<Partial<Settings> | null> {
   const read = (id: string): string => section.querySelector<HTMLInputElement>(`#${id}`)?.value.trim() ?? '';
+  const aiProvider = (section.querySelector<HTMLSelectElement>('#fwa-onboarding-ai-provider')?.value ?? '') as AiProvider;
+  if (!aiProvider) {
+    setStepStatus(section, '請先選擇 Local Ornith 或 Azure OpenAI。', true);
+    return null;
+  }
   setStepStatus(section, 'API 設定已儲存；API Key 也可以之後再到設定頁補上。');
   return {
+    aiProvider,
+    ornithBaseUrl: read('fwa-onboarding-ornith-base-url'),
+    ornithModel: read('fwa-onboarding-ornith-model'),
+    ornithApiKey: read('fwa-onboarding-ornith-api-key'),
     azureEndpoint: read('fwa-onboarding-azure-endpoint'),
     azureDeployment: read('fwa-onboarding-azure-deployment'),
     azureApiVersion: read('fwa-onboarding-azure-api-version'),
@@ -590,65 +574,66 @@ function setStepStatus(section: HTMLElement, message: string, isError = false): 
   status.classList.toggle('is-error', isError);
 }
 
-function buildGuide(rawHtml: string, kind: 'topbar' | 'editor-toolbar'): HTMLElement {
-  const parsed = new DOMParser().parseFromString(rawHtml, 'text/html');
-  const wrapper = el('div', { class: `fwa-onboarding-guide fwa-onboarding-${kind}-guide` });
-  const sourceStyle = parsed.querySelector('style');
-  if (sourceStyle) {
-    const style = document.createElement('style');
-    style.textContent = sourceStyle.textContent ?? '';
-    wrapper.append(style);
-  }
-  const arrowStyle = document.createElement('style');
-  arrowStyle.textContent = `
-    .fwa-onboarding-guide .demo,
-    .fwa-onboarding-guide .topbar,
-    .fwa-onboarding-guide .control-group,
-    .fwa-onboarding-guide .edit-tools { overflow: visible !important; }
-    .fwa-onboarding-guide .three-arrows { display: grid !important; visibility: visible !important; z-index: 20 !important; }
-    .fwa-onboarding-guide .mini-arrow,
-    .fwa-onboarding-guide .arrow {
-      display: block !important;
-      visibility: visible !important;
-      opacity: 1 !important;
-      z-index: 21 !important;
-      pointer-events: none !important;
-    }
-    .fwa-onboarding-guide .mini-arrow path,
-    .fwa-onboarding-guide .arrow path { stroke: #d85b63 !important; }
-    .fwa-onboarding-guide .mini-arrow polygon,
-    .fwa-onboarding-guide .arrow polygon { fill: #d85b63 !important; }
-  `;
-  wrapper.append(arrowStyle);
-
-  const pageSource = parsed.querySelector('.page');
-  if (!(pageSource instanceof HTMLElement)) return wrapper;
-  const page = pageSource.cloneNode(true) as HTMLElement;
-  page.querySelectorAll('script, iframe, object, embed, link, base, .toast, .legend, .guide, .ai-note').forEach((node) => node.remove());
-  page.querySelectorAll<HTMLButtonElement>('button').forEach((button) => {
-    button.type = 'button';
-    button.removeAttribute('formaction');
-    button.removeAttribute('formmethod');
-    button.removeAttribute('formtarget');
+/** A local, editable guide; no article or remote service is changed here. */
+function renderEditorStep(requestFutureMode: () => void): HTMLElement {
+  const source = el('textarea', {
+    class: 'fwa-studio-demo-source',
+    'aria-label': '示範文章原始碼',
+    spellcheck: 'false',
   });
-  page.querySelectorAll<HTMLAnchorElement>('a').forEach((anchor) => {
-    anchor.removeAttribute('href');
-    anchor.removeAttribute('target');
-    anchor.removeAttribute('rel');
+  const title = el('h3', { contenteditable: 'true', tabindex: '0', role: 'textbox', 'aria-label': '示範文章標題', text: '部署前檢查' });
+  const paragraph = el('p', { contenteditable: 'true', tabindex: '0', role: 'textbox', 'aria-label': '示範文章內容', text: '確認服務版本、設定檔與資料備份，再開始部署。點擊這段文字即可修改。' });
+  const visual = el('div', { class: 'fwa-studio-demo-content' }, [title, paragraph]);
+  const visualButton = el('button', { class: 'fwa-btn active', type: 'button', 'aria-pressed': 'true', text: '視覺編輯' });
+  const sourceButton = el('button', { class: 'fwa-btn', type: 'button', 'aria-pressed': 'false', text: '原始碼' });
+  const feedback = el('p', { class: 'fwa-studio-demo-note', role: 'status', 'aria-live': 'polite', text: '直接點選文字即可編輯。這份示範不會修改你的 Wiki。' });
+  let visualMode = true;
+  const toSource = (): void => { source.value = '# ' + (title.textContent ?? '') + '\n\n' + (paragraph.innerText || paragraph.textContent || ''); };
+  const toVisual = (): void => {
+    const lines = source.value.split('\n');
+    title.textContent = (lines.shift() ?? '').replace(/^#\s*/, '');
+    paragraph.textContent = lines.join('\n').replace(/^\n/, '');
+  };
+  const setMode = (visualSelected: boolean): void => {
+    if (visualSelected === visualMode) return;
+    if (visualSelected) toVisual();
+    else toSource();
+    visualMode = visualSelected;
+    visual.hidden = !visualSelected;
+    source.hidden = visualSelected;
+    visualButton.classList.toggle('active', visualSelected);
+    sourceButton.classList.toggle('active', !visualSelected);
+    visualButton.setAttribute('aria-pressed', String(visualSelected));
+    sourceButton.setAttribute('aria-pressed', String(!visualSelected));
+    feedback.textContent = visualSelected ? '已切換至視覺編輯，試著直接改寫內容。' : '同一份內容，以 Markdown 呈現。你可以在這裡繼續修改。';
+  };
+  visualButton.addEventListener('click', () => setMode(true));
+  sourceButton.addEventListener('click', () => setMode(false));
+  visual.addEventListener('input', () => { feedback.textContent = '示範內容已修改。切換原始碼就能看見對應文字。'; });
+  // Plain text paste keeps this intentionally small demo predictable.
+  visual.addEventListener('paste', (event) => {
+    event.preventDefault();
+    const text = event.clipboardData?.getData('text/plain') ?? '';
+    const selection = visual.getRootNode() instanceof ShadowRoot
+      ? (visual.getRootNode() as ShadowRoot & { getSelection?: () => Selection | null }).getSelection?.() ?? window.getSelection()
+      : window.getSelection();
+    if (!selection?.rangeCount) return;
+    const range = selection.getRangeAt(0);
+    if (!visual.contains(range.commonAncestorContainer)) return;
+    range.deleteContents();
+    const node = document.createTextNode(text);
+    range.insertNode(node);
+    range.setStartAfter(node);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
   });
-  wrapper.append(page);
-
-  const status = el('div', {
-    class: 'fwa-onboarding-guide-status',
-    role: 'status',
-    'aria-live': 'polite',
-  });
-  wrapper.append(status);
-  page.querySelectorAll<HTMLElement>('[data-key], [data-target]').forEach((control) => {
-    control.addEventListener('click', () => {
-      const label = control.textContent?.replace(/\s+/g, ' ').trim() || '這個控制項';
-      status.textContent = `預覽提示：${label}`;
-    });
-  });
-  return wrapper;
+  source.hidden = true;
+  const open = el('button', { class: 'fwa-btn fwa-btn-primary', type: 'button', text: '前往 Wiki，開始視覺編輯 →' });
+  open.addEventListener('click', requestFutureMode);
+  return el('div', { class: 'fwa-studio-demo' }, [
+    el('div', { class: 'fwa-studio-demo-bar' }, [el('strong', { text: '編輯操作示範' }), el('div', { class: 'fwa-studio-demo-modes', role: 'group', 'aria-label': '示範編輯模式' }, [sourceButton, visualButton])]),
+    visual, source, feedback,
+    el('div', { class: 'fwa-studio-demo-actions' }, [open]),
+  ]);
 }

@@ -2,6 +2,7 @@ import { wikiConfig } from '../config/wiki-config';
 import type { Settings } from '../shared/types';
 import { getSettings, saveSettings } from '../shared/storage';
 import type { EditorAdapter } from './editor-adapter';
+import { WikiDocumentSync } from './document-sync';
 import { createUploadTarget, openAssetsManagerFallback } from './image-uploader';
 import { getCurrentArticlePath } from './page-path';
 import { UploadCancelledError, type UploadTarget } from './upload-types';
@@ -50,6 +51,7 @@ export class ImageDropHandler {
   constructor(
     private readonly adapter: EditorAdapter,
     private readonly settings: Settings,
+    private readonly documentSync = new WikiDocumentSync(adapter),
   ) {}
 
   attach(): void {
@@ -70,7 +72,14 @@ export class ImageDropHandler {
     const lines = await this.uploadFiles(files);
     if (lines.length === 0) return;
 
-    this.adapter.insertAtCursor(lines.join('\n') + '\n');
+    const result = this.documentSync.insertAtCursor(lines.join('\n') + '\n', {
+      origin: 'image-upload',
+      view: 'image-upload',
+    });
+    if (result.status === 'conflict') {
+      showToast('目前存在未解決的 Markdown 衝突，圖片連結未插入；兩側內容仍保留。', 'error', 7000);
+      return;
+    }
     this.adapter.focus();
   }
 

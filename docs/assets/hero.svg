@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="488" viewBox="0 0 1280 488" role="img" aria-labelledby="title desc">
+<title id="title">Wiki Studio — From Markdown to a living workspace.</title><desc id="desc">Wiki.js visual editing, assets and reusable templates.</desc>
+<defs>
+ <radialGradient id="glow"><stop stop-color="#6eb7ff" stop-opacity=".23"/><stop offset="1" stop-color="#6eb7ff" stop-opacity="0"/></radialGradient>
+ <linearGradient id="edge"><stop stop-color="#6eb7ff"/><stop offset="1" stop-color="#6eb7ff" stop-opacity="0"/></linearGradient>
+ <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse"><path d="M32 0H0V32" fill="none" stroke="#a8b6ce" stroke-opacity=".065"/></pattern>
+ <clipPath id="bounds"><rect width="1280" height="488" rx="24"/></clipPath>
+</defs>
+<style>text{font-family:Inter,Segoe UI,Arial,sans-serif}.orbit{transform-origin:996px 225px;animation:orbit 70s linear infinite}.glow{animation:breathe 7s ease-in-out infinite}.pulse{animation:pulse 4s ease-in-out infinite}@keyframes orbit{to{transform:rotate(360deg)}}@keyframes breathe{50%{opacity:.55}}@keyframes pulse{50%{opacity:.25}}@media(prefers-reduced-motion:reduce){.orbit,.glow,.pulse{animation:none}}</style>
+<g clip-path="url(#bounds)">
+ <rect width="1280" height="488" fill="#0b1120"/><rect width="1280" height="488" fill="url(#grid)"/>
+ <ellipse class="glow" cx="995" cy="222" rx="350" ry="330" fill="url(#glow)"/>
+ <path d="M56 0H1224" stroke="url(#edge)" stroke-width="3"/>
+ <circle cx="62" cy="56" r="5" fill="#6eb7ff"/><text x="80" y="61" fill="#a7b8cf" font-size="12" letter-spacing="3">TIGER HZU / EVERYDAY TOOLS</text>
+ <text x="56" y="160" fill="#6eb7ff" font-size="13" letter-spacing="3">WRITE / ORGANIZE / PUBLISH</text>
+ <text x="52" y="237" fill="#f2f6ff" font-size="70" font-weight="700" letter-spacing="-3">Wiki Studio</text>
+ <text x="56" y="284" fill="#aebfd6" font-size="21">From Markdown to a living workspace.</text>
+ <rect x="56" y="338" width="160" height="36" rx="18" fill="#ffffff" fill-opacity=".045" stroke="#ffffff" stroke-opacity=".13"/><text x="136" y="361" text-anchor="middle" fill="#c6d0df" font-size="13" font-weight="500">TypeScript</text><rect x="232" y="338" width="160" height="36" rx="18" fill="#ffffff" fill-opacity=".045" stroke="#ffffff" stroke-opacity=".13"/><text x="312" y="361" text-anchor="middle" fill="#c6d0df" font-size="13" font-weight="500">Manifest V3</text><rect x="408" y="338" width="160" height="36" rx="18" fill="#ffffff" fill-opacity=".045" stroke="#ffffff" stroke-opacity=".13"/><text x="488" y="361" text-anchor="middle" fill="#c6d0df" font-size="13" font-weight="500">Wiki.js</text>
+ <circle cx="996" cy="225" r="145" fill="none" stroke="#6eb7ff" stroke-opacity=".18"/>
+ <circle class="orbit" cx="996" cy="225" r="176" fill="none" stroke="#6eb7ff" stroke-opacity=".28" stroke-dasharray="4 18"/>
+ <path d="M790 225H841M1151 225H1202M996 25V70M996 380V409" stroke="#6eb7ff" stroke-opacity=".28"/>
+ <circle class="pulse" cx="851" cy="225" r="5" fill="#6eb7ff"/>
+ <circle cx="1141" cy="225" r="5" fill="#6eb7ff" fill-opacity=".7"/>
+ <svg x="916" y="145" width="160" height="160" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
+  <defs><linearGradient id="blue" x1="64" y1="0" x2="64" y2="128" gradientUnits="userSpaceOnUse"><stop stop-color="#64b8ff"/><stop offset="1" stop-color="#287dea"/></linearGradient></defs>
+  <rect width="128" height="128" rx="30" fill="url(#blue)"/>
+  <rect x="2" y="2" width="124" height="124" rx="28" stroke="white" stroke-opacity=".3"/>
+  <path d="M27 31c15 0 26 4 37 13 11-9 22-13 37-13v58c-14 0-26 4-37 12-11-8-23-12-37-12V31Z" stroke="white" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M64 45v55M39 47l13 5M39 61l13 5M76 52l13-5M76 66l13-5" stroke="white" stroke-width="4" stroke-linecap="round"/>
+</svg>
+ <path d="M56 423H1224" stroke="#ffffff" stroke-opacity=".13"/>
+ <text x="56" y="457" fill="#94a8c5" font-size="12" letter-spacing="2">ONE DOCUMENT. MANY WAYS TO CREATE.</text>
+ <text x="1224" y="457" text-anchor="end" fill="#6eb7ff" font-size="12" letter-spacing="2">01 / BUILT FOR THE EVERYDAY</text>
+</g></svg>

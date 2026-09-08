@@ -2,8 +2,13 @@ import { getSettings } from '../shared/storage';
 
 const STYLE_ID = 'fwa-wiki-sidebar-theme';
 const MARKER_CLASS = 'fwa-wiki-sidebar';
+// Page-origin localStorage copy of the last applied theme. chrome.storage is
+// async, so at document_start this synchronous cache is the only way to have
+// the color in place before the first paint.
+const THEME_CACHE_KEY = 'fwa:sidebar-theme';
 
 export const SIDEBAR_COLOR_PRESETS = [
+  '#287dea',
   '#ff7a1a',
   '#f5b82e',
   '#ef4444',
@@ -18,46 +23,55 @@ export const SIDEBAR_COLOR_PRESETS = [
   '#64748b',
 ] as const;
 
-const SIDEBAR_STYLE = `
-html[data-fwa-sidebar-color] .${MARKER_CLASS},
-html[data-fwa-sidebar-color] .${MARKER_CLASS} .v-navigation-drawer__content {
+function sidebarStyleFor(scope: string): string {
+  return `
+${scope},
+${scope} .v-navigation-drawer__content {
   background-color: var(--fwa-sidebar-color) !important;
   background-image: var(--fwa-sidebar-gradient) !important;
   color: var(--fwa-sidebar-text) !important;
 }
 
-html[data-fwa-sidebar-color] .${MARKER_CLASS} .v-list {
+${scope} .v-list {
   background: transparent !important;
   color: var(--fwa-sidebar-text) !important;
 }
 
-html[data-fwa-sidebar-color] .${MARKER_CLASS} .pa-3.d-flex {
+${scope} .pa-3.d-flex {
   background-color: var(--fwa-sidebar-header-start) !important;
   background-image: var(--fwa-sidebar-header-gradient) !important;
 }
 
-html[data-fwa-sidebar-color] .${MARKER_CLASS} .pa-3.d-flex > .v-btn {
+${scope} .pa-3.d-flex > .v-btn {
   background-color: var(--fwa-sidebar-button) !important;
   color: var(--fwa-sidebar-text) !important;
 }
 
-html[data-fwa-sidebar-color] .${MARKER_CLASS} .v-list-item,
-html[data-fwa-sidebar-color] .${MARKER_CLASS} .v-list-item__title,
-html[data-fwa-sidebar-color] .${MARKER_CLASS} .v-list-item__icon,
-html[data-fwa-sidebar-color] .${MARKER_CLASS} .v-list-item__avatar,
-html[data-fwa-sidebar-color] .${MARKER_CLASS} .v-icon,
-html[data-fwa-sidebar-color] .${MARKER_CLASS} .v-subheader {
+${scope} .v-list-item,
+${scope} .v-list-item__title,
+${scope} .v-list-item__icon,
+${scope} .v-list-item__avatar,
+${scope} .v-icon,
+${scope} .v-subheader {
   color: var(--fwa-sidebar-text) !important;
 }
 
-html[data-fwa-sidebar-color] .${MARKER_CLASS} .v-list-item::before {
+${scope} .v-list-item::before {
   background-color: var(--fwa-sidebar-text) !important;
 }
 
-html[data-fwa-sidebar-color] .${MARKER_CLASS} .v-divider {
+${scope} .v-divider {
   border-color: var(--fwa-sidebar-divider) !important;
 }
 `;
+}
+
+// The fallback scope covers the window between first paint and the moment
+// updateMarker() tags the drawer: it colors Wiki.js' own drawer directly,
+// but only while no element carries the marker class yet.
+const SIDEBAR_STYLE =
+  sidebarStyleFor(`html[data-fwa-sidebar-color] .${MARKER_CLASS}`) +
+  sidebarStyleFor(`html[data-fwa-sidebar-color]:not(:has(.${MARKER_CLASS})) .v-navigation-drawer`);
 
 /** Accepts #rgb / #rrggbb and returns a consistent lowercase #rrggbb value. */
 export function normalizeSidebarColor(value: string): string | null {
@@ -152,13 +166,30 @@ function findWikiSidebar(): HTMLElement | null {
  */
 export class SidebarAppearance {
   private observer: MutationObserver | null = null;
-  private scheduled = false;
   private refreshVersion = 0;
 
   attach(): void {
     ensureStyle();
+    this.applyCachedTheme();
     void this.refresh();
-    this.observer = new MutationObserver(() => this.scheduleMarkerUpdate());
+    // MutationObserver callbacks run before the browser paints the DOM
+    // changes that triggered them. Mark the replacement drawer immediately;
+    // deferring this to requestAnimationFrame lets Wiki.js' default blue
+    // drawer flash for one frame during SPA navigation.
+    this.observer = new MutationObserver(() => {
+      if (!chrome.runtime?.id) {
+        // Extension reloaded — stop this orphaned script's observer.
+        this.observer?.disconnect();
+        return;
+      }
+      if (!document.documentElement.hasAttribute('data-fwa-sidebar-color')) return;
+      // This fires on every mutation batch (every keystroke while editing) and
+      // updateMarker forces layout for each drawer candidate. A marked drawer
+      // that is still in the DOM stays valid — Vue patches it in place — and
+      // the stylesheet's :has() fallback colors any window without a marker.
+      if (document.querySelector(`.${MARKER_CLASS}`)) return;
+      this.updateMarker();
+    });
     this.observer.observe(document.documentElement, { childList: true, subtree: true });
   }
 
@@ -175,9 +206,40 @@ export class SidebarAppearance {
     this.applyColor(settings.sidebarColor, settings.sidebarGradientColor);
   }
 
+  /**
+   * Re-applies the last theme from the synchronous localStorage cache so the
+   * color is set before the first paint; refresh() then confirms it against
+   * chrome.storage. Without this, the async settings read leaves Wiki.js'
+   * default blue visible on every full page load.
+   */
+  private applyCachedTheme(): void {
+    try {
+      const raw = localStorage.getItem(THEME_CACHE_KEY);
+      if (!raw) return;
+      const cached = JSON.parse(raw) as { color?: unknown; gradient?: unknown };
+      if (typeof cached.color !== 'string') return;
+      this.applyColor(cached.color, typeof cached.gradient === 'string' ? cached.gradient : '');
+    } catch {
+      /* corrupt or blocked cache — refresh() applies the real settings */
+    }
+  }
+
+  private cacheTheme(color: string | null, gradientValue: string): void {
+    try {
+      if (color) {
+        localStorage.setItem(THEME_CACHE_KEY, JSON.stringify({ color, gradient: gradientValue }));
+      } else {
+        localStorage.removeItem(THEME_CACHE_KEY);
+      }
+    } catch {
+      /* localStorage unavailable — only costs the pre-paint fast path */
+    }
+  }
+
   private applyColor(value: string, gradientValue: string): void {
     const root = document.documentElement;
     const color = normalizeSidebarColor(value);
+    this.cacheTheme(color, gradientValue);
     if (!color) {
       root.removeAttribute('data-fwa-sidebar-color');
       root.style.removeProperty('--fwa-sidebar-color');
@@ -213,15 +275,6 @@ export class SidebarAppearance {
     );
     root.style.setProperty('--fwa-sidebar-text', text);
     this.updateMarker();
-  }
-
-  private scheduleMarkerUpdate(): void {
-    if (this.scheduled || !document.documentElement.hasAttribute('data-fwa-sidebar-color')) return;
-    this.scheduled = true;
-    window.requestAnimationFrame(() => {
-      this.scheduled = false;
-      this.updateMarker();
-    });
   }
 
   private updateMarker(): void {

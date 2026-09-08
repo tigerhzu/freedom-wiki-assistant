@@ -6,6 +6,7 @@ import {
   type Settings,
   type Template,
 } from './types';
+import { normalizeAiProviderSettings } from './ai-provider-settings';
 
 /** Typed wrapper around chrome.storage.local. Nothing else touches storage directly. */
 
@@ -19,11 +20,19 @@ const KEYS = {
 
 export async function getSettings(): Promise<Settings> {
   const raw = await chrome.storage.local.get(KEYS.settings);
-  return { ...DEFAULT_SETTINGS, ...(raw[KEYS.settings] as Partial<Settings> | undefined) };
+  const stored = raw[KEYS.settings] as Partial<Settings> | undefined;
+  const merged = { ...DEFAULT_SETTINGS, ...stored };
+  merged.showPet = typeof stored?.showPet === 'boolean' ? stored.showPet : DEFAULT_SETTINGS.showPet;
+  return normalizeAiProviderSettings(merged, {
+    legacyAzureDefault: !!stored && !Object.prototype.hasOwnProperty.call(stored, 'aiProvider'),
+    // A manually edited/corrupt storage record must never make both providers usable.
+    clearConflictingKeys: true,
+  });
 }
 
 export async function saveSettings(settings: Settings): Promise<void> {
-  await chrome.storage.local.set({ [KEYS.settings]: settings });
+  const normalized = normalizeAiProviderSettings(settings);
+  await chrome.storage.local.set({ [KEYS.settings]: normalized });
 }
 
 export async function getTemplates(): Promise<Template[]> {
@@ -63,9 +72,11 @@ export async function saveCustomerBranches(branches: CustomerBranchMap): Promise
   await chrome.storage.local.set({ [KEYS.customerBranches]: branches });
 }
 
-export function onStorageChanged(cb: (changedKeys: string[]) => void): void {
+export function onStorageChanged(
+  cb: (changedKeys: string[], changes: Record<string, chrome.storage.StorageChange>) => void,
+): void {
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local') cb(Object.keys(changes));
+    if (area === 'local') cb(Object.keys(changes), changes);
   });
 }
 

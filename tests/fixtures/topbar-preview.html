@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-Hant">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wiki Studio · 搜尋欄配置驗證</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px 'Segoe UI', 'Microsoft JhengHei', sans-serif; }
+  header { display: grid; grid-template-columns: minmax(0, 25%) minmax(0, 1fr); height: 64px; background: #000; color: #fff; }
+  .title-column { display: flex; align-items: center; min-width: 0; padding-left: 16px; }
+  .v-toolbar__title { white-space: nowrap; }
+  .search-column { display: flex; align-items: center; background: #202020; padding: 8px; }
+  input { width: 100%; min-width: 0; border: 0; border-radius: 24px; padding: 12px 20px; background: #303030; color: white; }
+  main { padding: 24px; }
+  @media (max-width: 800px) { header { grid-template-columns: minmax(0, 50%) minmax(0, 1fr); } }
+</style>
+<header class="nav-header theme--dark"><div class="title-column"><div class="v-toolbar__title">Freedom Wiki</div></div><div class="search-column"><input type="search" aria-label="Search" placeholder="Search..."></div></header>
+<main>搜尋欄與設定按鈕應各自可點擊；縮窄視窗後仍保留工作台與設定。</main>
+<script type="module">
+  import { installPreviewChrome } from './preview-chrome';
+  import { MainNav } from '/src/content/main-nav';
+  installPreviewChrome();
+  new MainNav().attach();
+</script>
+</html>

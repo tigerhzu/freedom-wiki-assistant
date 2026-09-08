@@ -11,6 +11,7 @@ import {
   toggleBlockquote,
 } from './block-format';
 import type { EditorAdapter } from './editor-adapter';
+import { WikiDocumentSync } from './document-sync';
 import { BOX_PRESETS, DEFAULT_BOX } from './html-style';
 import {
   clearImageSize,
@@ -82,6 +83,7 @@ export class FormattingMenu {
   constructor(
     private readonly adapter: EditorAdapter,
     private readonly settings: Settings,
+    private readonly documentSync = new WikiDocumentSync(adapter),
   ) {}
 
   attach(): void {
@@ -103,7 +105,7 @@ export class FormattingMenu {
     try {
       const selection = this.adapter.getSelection();
       hasSelection = selection.text.length > 0;
-      image = findImageAt(this.adapter.getValue(), selection.start, selection.end);
+      image = findImageAt(this.documentSync.markdown, selection.start, selection.end);
     } catch {
       return; // bridge failure → keep native menu
     }
@@ -577,14 +579,17 @@ export class FormattingMenu {
    */
   private run(fn: EditFn, keepOpen = false): void {
     try {
-      const oldText = this.adapter.getValue();
+      const oldText = this.documentSync.markdown;
       const sel = this.adapter.getSelection();
       const result = fn(oldText, sel.start, sel.end);
       if (result.text === oldText) return;
 
       const diff = minimalDiff(oldText, result.text);
-      this.adapter.setSelection(diff.from, diff.to);
-      this.adapter.replaceSelection(diff.insert);
+      const syncResult = this.documentSync.replaceRange(diff.from, diff.to, diff.insert, {
+        origin: 'formatting',
+        view: 'formatting',
+      });
+      if (syncResult.status === 'conflict') return;
       this.adapter.setSelection(result.start, result.end);
       this.adapter.focus();
     } finally {

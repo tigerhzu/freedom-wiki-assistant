@@ -1,6 +1,7 @@
 import { AiLayoutError, runAiLayout } from './ai-layout-service';
 import type {
   AiLayoutRequestMessage,
+  ActivateFutureResponse,
   OpenOnboardingResponse,
   RuntimeMessage,
 } from '../shared/messages';
@@ -12,14 +13,17 @@ import { WIKI_ORIGIN } from '../config/wiki-config';
 /**
  * Background service worker. Seeds default templates on install, handles a
  * couple of UI messages, and — for "AI 排版" — is the only context that
- * holds the Azure OpenAI API key and makes the network call (see
- * ai-layout-service.ts / azure-openai-client.ts for why: CORS and key
+ * holds the selected provider API key and makes the network call (see
+ * ai-layout-service.ts and the provider clients for why: CORS and key
  * exposure, same reasoning as the HaloPSA extension's service-worker.js).
  */
 
 chrome.runtime.onInstalled.addListener(() => {
   void seedDefaultTemplatesIfEmpty();
 });
+
+let onboardingTabId: number | null = null;
+let onboardingSourceTabId: number | null = null;
 
 async function handleAiLayoutRequest(message: AiLayoutRequestMessage): Promise<AiLayoutResponse> {
   try {
@@ -37,13 +41,27 @@ async function handleAiLayoutRequest(message: AiLayoutRequestMessage): Promise<A
   }
 }
 
-async function handleOpenOnboarding(): Promise<OpenOnboardingResponse> {
+function sourceEditorTabId(sender: chrome.runtime.MessageSender): number | null {
+  const tabId = sender.tab?.id;
+  const rawUrl = sender.tab?.url;
+  if (tabId === undefined || !rawUrl) return null;
+  try {
+    const url = new URL(rawUrl);
+    return url.origin === WIKI_ORIGIN && url.pathname.startsWith('/e/') ? tabId : null;
+  } catch {
+    return null;
+  }
+}
+
+async function handleOpenOnboarding(sender: chrome.runtime.MessageSender): Promise<OpenOnboardingResponse> {
   const onboardingUrl = chrome.runtime.getURL('src/onboarding/onboarding.html');
+  onboardingSourceTabId = sourceEditorTabId(sender);
 
   try {
     const existingTabs = await chrome.tabs.query({ url: onboardingUrl });
     const existing = existingTabs.find((tab) => tab.id !== undefined);
     if (existing?.id !== undefined) {
+      onboardingTabId = existing.id;
       await chrome.tabs.update(existing.id, { active: true });
       if (existing.windowId !== undefined) {
         try {
@@ -60,7 +78,10 @@ async function handleOpenOnboarding(): Promise<OpenOnboardingResponse> {
 
   try {
     const created = await chrome.tabs.create({ url: onboardingUrl, active: true });
-    if (created.id !== undefined) return { ok: true };
+    if (created.id !== undefined) {
+      onboardingTabId = created.id;
+      return { ok: true };
+    }
   } catch {
     // Fall through to the actionable message below.
   }
@@ -69,6 +90,32 @@ async function handleOpenOnboarding(): Promise<OpenOnboardingResponse> {
     ok: false,
     error: '無法開啟首次登入提示分頁，請重新整理後再試。',
   };
+}
+
+async function handleActivateFuture(): Promise<ActivateFutureResponse> {
+  const sourceTabId = onboardingSourceTabId;
+  if (sourceTabId === null) {
+    return { ok: false, error: '請從 Wiki 編輯頁開啟首次登入提示，才能使用 Future 模式。' };
+  }
+
+  try {
+    const sourceTab = await chrome.tabs.get(sourceTabId);
+    await chrome.tabs.update(sourceTabId, { active: true });
+    if (sourceTab.windowId !== undefined) {
+      try {
+        await chrome.windows.update(sourceTab.windowId, { focused: true });
+      } catch {
+        // Activating the tab is sufficient when window focus is blocked.
+      }
+    }
+    const response = await chrome.tabs.sendMessage(sourceTabId, { type: 'fwa:activate-future' });
+    return (response as ActivateFutureResponse | undefined) ?? {
+      ok: false,
+      error: '目前 Wiki 編輯頁無法開啟 Future 模式，請重新整理後再試。',
+    };
+  } catch {
+    return { ok: false, error: '找不到原本的 Wiki 編輯頁，請重新整理後再試。' };
+  }
 }
 
 chrome.runtime.onMessage.addListener((message: RuntimeMessage, sender, sendResponse) => {
@@ -85,14 +132,21 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, sender, sendRespo
         );
       return true;
     case 'fwa:open-onboarding':
-      void handleOpenOnboarding().then(sendResponse);
+      void handleOpenOnboarding(sender).then(sendResponse);
       return true;
     case 'fwa:close-onboarding':
       if (sender.tab?.id !== undefined) {
+        if (sender.tab.id === onboardingTabId) {
+          onboardingTabId = null;
+          onboardingSourceTabId = null;
+        }
         void chrome.tabs.remove(sender.tab.id).catch(() => undefined);
       }
       sendResponse({ ok: true });
       return false;
+    case 'fwa:activate-future':
+      void handleActivateFuture().then(sendResponse);
+      return true;
     case 'fwa:open-tab': {
       // Only ever open pages on the wiki origin.
       if (message.url.startsWith(WIKI_ORIGIN)) {

@@ -1,103 +1,118 @@
-# Freedom Wiki Assistant
-
+<p align="center"><img src="docs/assets/logo.svg" width="96" height="96" alt="Wiki Studio logo" /></p>
+<h1 align="center">Wiki Studio</h1>
+<p align="center"><strong>Freedom Wiki Assistant · 讓知識文件，更好寫、更好整理。</strong></p>
+<p align="center">視覺編輯 · 圖片資料庫 · 模板與客戶目錄 · AI 排版</p>
 <p align="center">
-  <img width="160" height="160" alt="Freedom Wiki Assistant logo" src="src/icons/wiki_logo_512.png" />
+  <a href="https://github.com/tigerhzu/freedom-wiki-assistant/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/tigerhzu/freedom-wiki-assistant?style=flat-square&color=287dea" /></a>
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-3178c6?style=flat-square&logo=typescript&logoColor=white" />
+  <img alt="Manifest V3" src="https://img.shields.io/badge/Extension-Manifest_V3-6877ed?style=flat-square" />
+  <img alt="Wiki.js 2.x" src="https://img.shields.io/badge/For-Wiki.js_2.x-009688?style=flat-square" />
 </p>
 
-Freedom Wiki Assistant 是給 Wiki.js Markdown 編輯頁使用的 Chromium 擴充功能。它保留 Wiki.js 原生 Markdown 為唯一資料來源，並提供更方便的文字、圖片、版型與 Future 視覺化編輯功能。
+<picture>
+  <source media="(prefers-reduced-motion: reduce)" srcset="docs/assets/hero-static.svg" />
+  <img src="docs/assets/hero.svg" width="1280" alt="Wiki Studio：將 Markdown、視覺編輯、圖片與 AI 整合在同一個文件工作台" />
+</picture>
 
-最新安裝包請到 [GitHub Releases](https://github.com/tigerhzu/freedom-wiki-assistant/releases/latest) 下載。
+<p align="center">
+  <a href="https://github.com/tigerhzu/freedom-wiki-assistant/releases/latest">下載發行版</a> ·
+  <a href="docs/INSTALL.md">安裝指南</a> ·
+  <a href="docs/ARCHITECTURE.md">架構與資料流</a> ·
+  <a href="docs/DEVELOPMENT.md">開發文件</a> ·
+  <a href="docs/CHANGELOG.md">版本紀錄</a>
+</p>
 
-## 0.3.1 版本重點
+Wiki Studio 是為 **Wiki.js 2.x Markdown 編輯頁**打造的 Chrome／Edge 擴充功能。從直接編輯文章、拖入圖片，到插入模板與檢閱 AI 排版結果，都在既有 Wiki 工作流程內完成；文章最後交由 Wiki.js 原生 **SAVE** 儲存。
 
-- 修正 Classic 右側與 Future 輸入英文、數字及刪除時的延遲與焦點跳動。
-- 視覺編輯區持續輸入時保持即時反應，停止操作約 0.7 秒後再批次同步回 Markdown。
-- 背景同步不再移動原生 Markdown 編輯器游標或造成畫面捲回頂端。
+## 一個工作台，完成文件整理
 
-## 0.3.0 版本重點
+| 工作 | Wiki Studio 提供的工具 |
+| --- | --- |
+| **寫作與排版** | 原始碼／視覺編輯切換、反白格式工具列、字色與標記、段落對齊、引用與資訊框 |
+| **圖片處理** | 貼上／拖放上傳、依文章路徑選資料夾、檔名去重、尺寸／對齊／圓角／框線 |
+| **圖片資料庫** | 瀏覽文章資料夾與子資料夾、縮圖選取、重新命名、個別與批次刪除 |
+| **文件模板** | 搜尋、分類、預覽、插入、取代全文、變數、編輯與 JSON 匯入／匯出 |
+| **客戶與常用頁面** | 可搜尋的目錄、分類資料夾、拖曳排序、頁面分支、收藏目前頁面與頁面拓譜 |
+| **AI 排版** | Ornith／Azure OpenAI 擇一、選取範圍或全文、長文分段、差異檢閱與確認套用 |
+| **個人工作區** | 側欄配色、可拖曳 Pet、鍵盤工作台、設定與資料備份 |
 
-- 編輯頁新增 `Classic`／`Future` 模式切換、`設定` 快速入口，以及可直接在 Wiki 內容上操作的視覺化編輯介面。
-- 客戶目錄支援拖曳排序、重新命名、資料夾分類、匯入／匯出，以及「新增這個介面」快速保存目前 Wiki 頁面。
-- 文件模板支援搜尋、分類、預覽、插入、編輯、複製、匯入／匯出與拖曳排序。
-- 設定頁改為簡潔卡片式介面，提供側欄色票即時預覽、圖片上傳規則、Azure OpenAI 與完整設定備份。
-- 完整設定可一次包含色票、客戶、資料夾、模板、圖片與 AI 設定；另提供不含 API Key 的安全搬移版本。
+工作台快捷鍵為 `Ctrl / ⌘ + Shift + K`；在視覺文章中按 `Alt + F10` 可移至格式工具列。Pet 可隱藏，工具仍能從頂部工作台開啟。
 
-## 下載與安裝
+## 快速安裝
 
-最簡單的方式是從 GitHub 的 **Releases** 下載最新的 `Freedom-Wiki-Assistant-v*.zip`：
+公開發行包使用不會指向真實服務的示範網域。**先設定自己的 Wiki 網域，再載入擴充功能**；安裝包本身不含網站帳號、API Key 或預載客戶資料。
 
-1. 解壓縮下載的 ZIP 檔。
-2. 在 Edge 開啟 `edge://extensions`，或在 Chrome 開啟 `chrome://extensions`。
-3. 開啟右上角的「開發人員模式」。
-4. 按「載入解壓縮檔」，選取解壓縮後的資料夾。
-5. 前往公司 Wiki 的任一編輯頁面即可使用。
+1. 從 [Releases](https://github.com/tigerhzu/freedom-wiki-assistant/releases/latest) 下載 `Freedom-Wiki-Assistant-v*.zip` 並解壓縮到固定資料夾。
+2. 在解壓縮資料夾開啟 PowerShell，執行以下命令；將示範網址換成自己的 Wiki **HTTPS 網域**：
 
-如果你下載的是原始碼 ZIP，請依照 [安裝與建置說明](docs/INSTALL.md) 建置後再載入 `dist/`。
+   ```powershell
+   .\Configure-Wiki.ps1 -WikiOrigin https://wiki.example.org
+   ```
 
-## 給朋友的快速開始
+3. 在 `edge://extensions` 或 `chrome://extensions` 開啟「開發人員模式」，按「載入解壓縮檔」，選擇內含 `manifest.json` 的資料夾。
+4. 登入自己的 Wiki，開啟 `/e/…` 編輯頁，使用「視覺編輯」整理文章，最後按原生 **SAVE**。
 
-1. 從 [Releases](https://github.com/tigerhzu/freedom-wiki-assistant/releases/latest) 下載並解壓縮最新版安裝包。
-2. 在 `edge://extensions` 或 `chrome://extensions` 開啟「開發人員模式」，按「載入解壓縮檔」，選取解壓縮後含有 `manifest.json` 的資料夾。
-3. 開啟 Wiki.js 的任一**編輯頁**，在原生 `SAVE / PAGE / CLOSE` 左側按 `Future`；若要使用原生 Markdown 編輯器則按 `Classic`。
-4. 直接在頁面上點選、輸入或貼上內容；不需要手動寫 Markdown。
-5. 完成後按 Wiki.js 原生 `SAVE`。Future 會先把視覺修改轉成 Markdown，再交給 Wiki.js 儲存。
+設定腳本在本機更新網站權限與編譯後的網站設定，**不需 Node.js，也不會連線**。Ornith 網域設定、更新與腳本受限時的處理方式，請見 [完整安裝指南](docs/INSTALL.md)。
 
-首次安裝後若看不到按鈕，回到擴充功能頁按重新載入，再重新整理 Wiki 編輯頁即可。
+## 架構：一份文件，兩種編輯方式
 
-## Future 視覺化編輯模式
+```mermaid
+flowchart LR
+  subgraph browser[Chrome / Edge · Manifest V3]
+    UI[工作台／視覺編輯／圖片／模板]
+    Model[WikiDocumentModel<br/>Markdown、交易與版本]
+    Sync[WikiDocumentSync<br/>序列投影與衝突處理]
+    Bridge[Page Bridge<br/>DOM 事件與請求編號]
+    Native[Wiki.js 原生編輯器<br/>CodeMirror／Vue 狀態]
+    Storage[(chrome.storage.local<br/>設定、模板與目錄)]
+    Worker[Background Service Worker]
+    UI --> Model --> Sync --> Bridge --> Native
+    Native -->|原生變更| Sync
+    UI <-->|個人設定| Storage
+    UI -->|AI 排版請求| Worker
+    Worker -->|讀取 Provider 設定| Storage
+    Worker -->|結果／差異檢閱| UI
+  end
+  Native -->|原生 SAVE| Wiki[(Wiki.js 頁面儲存)]
+  UI -->|登入工作階段／Assets API| Assets[(Wiki.js 圖片資產)]
+  Worker <-->|HTTPS| AI[Ornith 或 Azure OpenAI]
+```
 
-Future 是全螢幕的視覺化編輯模式，讓使用者像直接修改 Wiki 頁面一樣編輯內容；每次修改都會即時同步到原生 Markdown，再由 Wiki.js 的原生流程保存。它不是另一個預覽面板：你可以直接在右側頁面內容上修改，不必了解 Markdown 語法。
+編輯期間由 `WikiDocumentModel` 記錄 Markdown、來源、交易與版本；`WikiDocumentSync` 將變更依序同步到原生編輯器。視覺輸入先留在前景工作副本，閒置約 700 ms 後批次轉回 Markdown，儲存前再完成待同步內容。Page Bridge 連接擴充功能隔離環境與 Wiki.js 頁面內的編輯器物件；持久化仍由原生 Wiki.js 完成。
 
-- 在 Wiki.js 原生 `SAVE / PAGE / CLOSE` 操作列旁，使用 `Classic` 與 `Future` 切換模式。
-- `Classic` 保留原生雙欄 Markdown 介面，左側 Markdown 與右側頁面會即時同步，右側也能直接編輯。
-- `Future` 顯示全螢幕、可直接點選與輸入的頁面內容，但仍保留原生 `SAVE / PAGE / CLOSE`。
-- Future 的文字、貼上、圖片與圖片樣式修改會即時同步至 Markdown；點選 Wiki.js 原生 `SAVE` 後，再使用 Wiki.js 原生儲存流程。
-- 文字反白後按右鍵，可設定字色、字級、粗體、斜體、底線、刪除線、背景標記、程式碼、對齊、縮排、引用與資訊框。
-- 在圖片上按右鍵，可調整大小、對齊、圓角與框線；圖片樣式會保存成相容的 Markdown／HTML。
-- 在 Future 貼上或拖曳圖片，會使用既有 Wiki.js Assets 上傳流程與目前頁面資料夾規則，不會把圖片存成 Base64。
-- Unicode emoji 會維持為 emoji，不會因為儲存轉成大型 SVG 圖片。
+這是單一瀏覽器編輯工作階段的同步機制。完整的版本追蹤、投影回音辨識、衝突限制、圖片與 AI 資料流，見 [架構文件](docs/ARCHITECTURE.md)。
 
-Future 的詳細操作與限制請見 [Future 模式指南](docs/FUTURE_MODE.md)。
+## 技術組成
 
-## 客戶與模板管理
+| 層次 | 技術與責任 |
+| --- | --- |
+| 擴充功能 | Manifest V3、Content Script、Background Service Worker、Chrome Storage API |
+| 介面 | TypeScript、原生 DOM、Shadow DOM、CSS；獨立設定頁與使用導覽 |
+| Wiki 整合 | 編輯器 Adapter、頁面 Bridge、Wiki.js Markdown 預覽、GraphQL 與 Assets 上傳 |
+| 文件核心 | Markdown／HTML 序列化、文字差異、交易版本、投影佇列、輸入與渲染世代追蹤 |
+| AI | HTTPS Provider client、分段排版、JSON 回應驗證、內容保留檢查與差異檢閱 |
+| 建置與驗證 | Vite 5、TypeScript、ESLint 9、Vitest 2、happy-dom |
 
-在 Wiki.js 編輯頁的擴充功能工具列開啟「客戶」後，可以：
+## AI 與本機資料
 
-- 拖曳客戶卡片調整順序，並將客戶拖到資料夾分類。
-- 用鉛筆按鈕重新命名客戶，或用「新增這個介面」把目前頁面存成客戶捷徑。
-- 建立資料夾、匯入／匯出客戶名單，以及保留同一客戶的常用頁面分支。
+AI 功能預設尚未啟用。到「設定 → AI 助手」選擇 Ornith 或 Azure OpenAI，填入自己的服務設定與 API Key；一次只啟用一個 Provider，切換時先移除原有設定。
 
-「模板」面板提供模板拖曳排序、分類、搜尋、預覽、插入、編輯、複製、刪除與 JSON 備份。
+按下 AI 排版後，**選取的內容，或未選取時的整篇文章，會傳到所選服務**。背景程式執行請求，結果先呈現差異、整理項目與警告；按「套用」才寫回編輯器，之後仍須按 Wiki.js **SAVE**。分段結果看不到其他段落，跨章節一致性需要自行檢閱。
 
-## 設定與資料搬移
+設定、客戶目錄、模板與 API Key 使用 `chrome.storage.local` 儲存，沒有自動跨裝置同步，也不是加密保險箱。搬移資料優先使用「不含 API Key」備份；含 Key 備份檔會包含可用憑證。Wiki、HaloPSA 與剪貼簿工具各自保管設定，不會自動共用帳號或金鑰。
 
-按 Wiki.js 編輯頁工具列的「設定」可開啟完整設定頁：
+## 從原始碼開始
 
-- 在「外觀」調整側欄主色與漸層色，並在即時預覽中查看按鈕的互動效果。
-- 設定圖片上傳資料夾判斷方式、Markdown 格式與 AI 排版參數。
-- 「匯出所有設定（不含 API Key）」適合搬到另一台電腦；匯入後會還原色票、客戶、資料夾、模板與其他設定。
-- 「匯出全部設定（含 API Key）」只應在你確認檔案保存風險後使用。
-
-設定與 API Key 儲存在瀏覽器本機，不會自動同步到 GitHub。
-
-## 主要功能
-
-- Markdown 編輯器的文字格式化右鍵選單。
-- 圖片貼上／拖放上傳至 Wiki.js Assets，包含資料夾選擇與檔名去重。
-- 圖片尺寸、對齊、圓角、框線與還原 Markdown。
-- 資訊框、警告框、段落對齊、縮排與區塊引用。
-- 文件範本、客戶捷徑、客戶資料夾、頁面拓譜與側欄外觀調整。
-- Azure OpenAI 排版輔助（設定保存在瀏覽器本機）。
-
-## 開發與驗證
+需求：**Node.js 20+**、npm，以及可登入的 Wiki.js 2.x；本專案驗證使用 Node.js 22。安裝相依套件後，將 `.env.example` 複製為 `.env`，設定自己的 `VITE_WIKI_ORIGIN`：
 
 ```powershell
-npm install
+npm ci
 Copy-Item .env.example .env
+# 編輯 .env 後建置
 npm run build
 ```
 
-完整檢查：
+完成後載入 `dist/`。只想先看介面，可執行 `npm run preview:studio`，開啟 `http://127.0.0.1:4187/`；預覽使用本機範例資料，圖片上傳與 AI 不會連到正式服務。
 
 ```powershell
 npm run typecheck
@@ -106,16 +121,28 @@ npm test
 npm run build
 ```
 
-環境變數請參考 [.env.example](.env.example)。除非是正式發行版，建置後請載入 `dist/` 目錄。
+建置分成背景與設定頁、Content Script、Page Bridge 三個輸出流程，最後複製資產並檢查 manifest。細節見 [開發指南](docs/DEVELOPMENT.md) 與 [發行指南](docs/RELEASE.md)。
 
-## 文件
+## 使用範圍與文件
 
-- [安裝與建置](docs/INSTALL.md)
-- [Future 模式指南](docs/FUTURE_MODE.md)
-- [疑難排解](docs/TROUBLESHOOTING.md)
+目前主要整合目標是 Wiki.js 2.x 的 Markdown／CodeMirror 5 編輯頁。原站的 DOM、HTML 清理規則、登入狀態與 Assets 權限都會影響整合；其他編輯器雖有偵測與 Adapter，仍需對目標網站驗證。圖片最大值依目前設定為單檔 5 MB，支援 PNG、JPG、JPEG、WEBP、GIF。
 
-## 安全性
+- [安裝與更新](docs/INSTALL.md) · [視覺編輯指南](docs/FUTURE_MODE.md) · [疑難排解](docs/TROUBLESHOOTING.md)
+- [架構與資料流](docs/ARCHITECTURE.md) · [開發與驗證](docs/DEVELOPMENT.md) · [發行方式](docs/RELEASE.md)
+- [介面設計](docs/STUDIO_REDESIGN.md) · [版本紀錄](docs/CHANGELOG.md)
 
-- 不要提交 `.env`、API Key、Cookie 或任何 Wiki.js 登入資訊。
-- Azure OpenAI 設定保存在瀏覽器的 `chrome.storage.local`，不會寫入 Git；發布的 ZIP 也不包含任何 API Key。
-- 圖片上傳使用目前已登入 Wiki.js 工作階段的原生 Assets 流程。
+## 同系列工具
+
+| 專案 | 工作場景 |
+| --- | --- |
+| **[Wiki Studio](https://github.com/tigerhzu/freedom-wiki-assistant)** | 知識文件、圖片、模板與視覺編輯 |
+| **[Halo Companion](https://github.com/tigerhzu/halo-psa-extension)** | HaloPSA 工作流程輔助 |
+| **[Clarity Clipboard](https://github.com/tigerhzu/clarity-clipboard)** | 桌面剪貼簿工具 |
+
+三個專案各自提供原始碼、安裝說明與 Release。功能建議與可重現問題可到 [Issues](https://github.com/tigerhzu/freedom-wiki-assistant/issues) 提出；範例內容請使用去識別化資料。
+
+查看 [三工具架構全景](docs/TOOLKIT.md)，了解三個工具如何分工。
+
+## 設計素材
+
+[Logo SVG](docs/assets/logo.svg) · [Logo PNG](docs/assets/logo.png) · [動態封面](docs/assets/hero.svg) · [靜態封面](docs/assets/hero-static.svg) · [架構圖 SVG](docs/assets/architecture.svg)。原始圖形與配色資料一起收錄在 Release 的品牌素材包；首頁動畫尊重減少動態效果偏好。

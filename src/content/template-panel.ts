@@ -19,6 +19,8 @@ import {
   type PlaceholderContext,
 } from '../templates/placeholder-service';
 import type { EditorAdapter } from './editor-adapter';
+import { WikiDocumentSync } from './document-sync';
+import { icon } from './icons';
 import { readCurrentPageTitle } from './page-title';
 import { createShadowHost, el, openModal, showToast } from './ui';
 
@@ -57,8 +59,27 @@ export class TemplatePanel {
   private query = '';
   private category = '';
   private draggingTemplateId: string | null = null;
+  private renderVersion = 0;
+  private returnFocus: HTMLElement | null = null;
+  private readonly positionPanel = (): void => {
+    const nativeSave = document.querySelector(wikiConfig.editor.saveButtonIconSelector)?.closest('button');
+    const header = nativeSave?.closest('header, nav, .v-toolbar') ?? nativeSave?.parentElement;
+    const top = Math.max(64, Math.round(header?.getBoundingClientRect().bottom ?? 64)) + 12;
+    this.panel?.style.setProperty('--fwa-panel-top', `${top}px`);
+  };
+  private readonly onPanelKeyDown = (event: KeyboardEvent): void => {
+    if (event.key !== 'Escape' || !this.panel) return;
+    // A dialog launched by the library owns Escape until it has closed.
+    if (document.getElementById('fwa-modal-host')?.shadowRoot?.querySelector('.fwa-modal-backdrop')) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.close();
+  };
 
-  constructor(private readonly adapter: EditorAdapter) {}
+  constructor(
+    private readonly adapter: EditorAdapter,
+    private readonly documentSync = new WikiDocumentSync(adapter),
+  ) {}
 
   isOpen(): boolean {
     return this.panel !== null;
@@ -70,6 +91,9 @@ export class TemplatePanel {
   }
 
   detach(): void {
+    document.removeEventListener('keydown', this.onPanelKeyDown);
+    window.removeEventListener('resize', this.positionPanel);
+    this.renderVersion++;
     this.clearTemplateDragState();
     this.closePlaceholderGuide();
     document.getElementById('fwa-panel-host')?.remove();
@@ -196,30 +220,35 @@ export class TemplatePanel {
 
   toggle(): void {
     if (this.panel) {
+      document.removeEventListener('keydown', this.onPanelKeyDown);
+      window.removeEventListener('resize', this.positionPanel);
+      this.renderVersion++;
       this.clearTemplateDragState();
       this.panel.remove();
       this.panel = null;
       this.listEl = null;
       this.summaryEl = null;
       this.categorySelectEl = null;
+      if (this.returnFocus?.isConnected) this.returnFocus.focus({ preventScroll: true });
       return;
     }
     const { root } = createShadowHost('fwa-panel-host');
+    this.returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
     const closeBtn = el('button', {
       class: 'fwa-btn fwa-template-close',
-      text: '×',
       title: '關閉模板',
       'aria-label': '關閉模板',
-    });
+    }, [icon('close', 17)]);
     const newBtn = el('button', {
       class: 'fwa-btn fwa-btn-primary fwa-template-add',
-      text: '＋ 新增模板',
-    });
+      title: '建立新模板',
+      'aria-label': '建立新模板',
+    }, [icon('plus', 18)]);
     const header = el('div', { class: 'fwa-template-panel-header' }, [
       el('div', { class: 'fwa-template-heading' }, [
-        el('div', { class: 'title', text: '文章模板' }),
-        el('div', { class: 'subtitle', text: '快速插入、預覽與管理常用內容' }),
+        el('div', { class: 'title', id: 'fwa-template-title', text: '文章模板' }),
+        el('div', { class: 'subtitle', text: '搜尋、預覽，插入常用內容。' }),
       ]),
       newBtn,
       closeBtn,
@@ -227,34 +256,36 @@ export class TemplatePanel {
     closeBtn.addEventListener('click', () => this.toggle());
     newBtn.addEventListener('click', () => this.openEditor(null));
 
-    const search = el('input', { type: 'search', placeholder: '搜尋模板…' });
+    const search = el('input', { type: 'search', placeholder: '搜尋模板或內容…', 'aria-label': '搜尋模板', value: this.query });
     search.addEventListener('input', () => {
       this.query = search.value;
       void this.renderList();
     });
-    const catSelect = el('select');
+    const catSelect = el('select', { 'aria-label': '模板分類' });
     catSelect.addEventListener('change', () => {
       this.category = catSelect.value;
       void this.renderList();
     });
     this.categorySelectEl = catSelect;
-    const tools = el('div', { class: 'fwa-template-tools' }, [search, catSelect]);
+    const tools = el('div', { class: 'fwa-template-tools' }, [
+      el('div', { class: 'fwa-template-search' }, [icon('search', 16), search]), catSelect,
+    ]);
 
     this.listEl = el('div', { class: 'fwa-panel-list fwa-template-list' });
     this.bindTemplateListDragEvents(this.listEl);
-    this.summaryEl = el('div', { class: 'fwa-template-summary' });
+    this.summaryEl = el('div', { class: 'fwa-template-summary', 'aria-live': 'polite' });
 
     const saveCurrentBtn = el('button', {
       class: 'fwa-btn fwa-btn-primary',
-      text: '將目前文章存為模板',
+      text: '收藏目前文章為模板',
     });
     saveCurrentBtn.addEventListener('click', () => {
-      const content = this.adapter.getValue();
+      const content = this.documentSync.markdown;
       this.openEditor(null, { content, name: this.placeholderContext().pageTitle });
     });
-    const exportBtn = el('button', { class: 'fwa-btn', text: '匯出 JSON' });
+    const exportBtn = el('button', { class: 'fwa-btn', text: '匯出模板' });
     exportBtn.addEventListener('click', () => void this.doExport());
-    const importBtn = el('button', { class: 'fwa-btn', text: '匯入 JSON' });
+    const importBtn = el('button', { class: 'fwa-btn', text: '匯入模板' });
     importBtn.addEventListener('click', () => void this.doImport('merge'));
     const restoreBtn = el('button', { class: 'fwa-btn', text: '還原備份' });
     restoreBtn.addEventListener('click', () => void this.doImport('replace'));
@@ -263,7 +294,7 @@ export class TemplatePanel {
       el('div', { class: 'fwa-template-utility-row' }, [exportBtn, importBtn, restoreBtn]),
     ]);
 
-    this.panel = el('div', { class: 'fwa-panel fwa-template-panel' }, [
+    this.panel = el('aside', { class: 'fwa-panel fwa-template-panel', 'aria-labelledby': 'fwa-template-title' }, [
       header,
       tools,
       this.summaryEl,
@@ -271,13 +302,18 @@ export class TemplatePanel {
       footer,
     ]);
     root.appendChild(this.panel);
+    this.positionPanel();
+    window.addEventListener('resize', this.positionPanel);
+    document.addEventListener('keydown', this.onPanelKeyDown);
+    search.focus({ preventScroll: true });
     void this.renderList(catSelect);
   }
 
   private async renderList(catSelect?: HTMLSelectElement): Promise<void> {
     if (!this.listEl) return;
+    const version = ++this.renderVersion;
     const all = await listTemplates();
-    if (!this.listEl) return; // The panel may have been closed while storage was loading.
+    if (!this.listEl || version !== this.renderVersion) return;
 
     const categorySelect = catSelect ?? this.categorySelectEl;
     const categories = listCategories(all);
@@ -296,7 +332,7 @@ export class TemplatePanel {
         el('span', { class: 'fwa-template-count', text: `${filtered.length} 個模板` }),
         el('span', {
           class: 'fwa-template-summary-hint',
-          text: this.query || this.category ? `共 ${all.length} 個` : '選取後可直接插入文章',
+          text: this.query || this.category ? `全部 ${all.length} 個` : '拖曳排列 · 插入前可確認',
         }),
       );
     }
@@ -304,7 +340,7 @@ export class TemplatePanel {
     if (filtered.length === 0) {
       this.listEl.appendChild(
         el('div', { class: 'fwa-template-empty' }, [
-          el('div', { class: 'fwa-template-empty-icon', text: '⌁' }),
+          el('div', { class: 'fwa-template-empty-icon' }, [icon('template', 25)]),
           el('div', { class: 'fwa-template-empty-title', text: '找不到模板' }),
           el('div', {
             class: 'fwa-template-empty-description',
@@ -321,19 +357,24 @@ export class TemplatePanel {
 
   private renderItem(tpl: Template): HTMLElement {
     const actions = el('div', { class: 'actions' });
+    const secondaryActions = el('div', { class: 'fwa-template-secondary-actions' });
     const buttons: Array<[string, () => void, string?]> = [
       ['插入', () => this.insert(tpl, 'cursor'), 'fwa-btn fwa-btn-primary'],
-      ['取代全文', () => this.insert(tpl, 'replace')],
       ['預覽', () => this.preview(tpl)],
+      ['取代全文', () => this.insert(tpl, 'replace')],
       ['編輯', () => this.openEditor(tpl)],
       ['複製', () => void this.duplicate(tpl)],
       ['刪除', () => this.remove(tpl), 'fwa-btn fwa-btn-danger'],
     ];
-    for (const [label, fn, cls] of buttons) {
+    for (const [index, [label, fn, cls]] of buttons.entries()) {
       const btn = el('button', { class: cls ?? 'fwa-btn', text: label });
       btn.addEventListener('click', fn);
-      actions.appendChild(btn);
+      (index < 2 ? actions : secondaryActions).appendChild(btn);
     }
+    actions.appendChild(el('details', { class: 'fwa-template-more' }, [
+      el('summary', { class: 'fwa-btn', 'aria-label': `管理模板：${tpl.name}`, title: '管理模板' }, [icon('more', 17)]),
+      secondaryActions,
+    ]));
     const dragHandle = el('button', {
       class: 'fwa-template-drag-handle',
       type: 'button',
@@ -484,8 +525,13 @@ export class TemplatePanel {
     cancel.addEventListener('click', () => modal.close());
     ok.addEventListener('click', () => {
       modal.close();
-      if (mode === 'cursor') this.adapter.insertAtCursor(resolved);
-      else this.adapter.setValue(resolved);
+      const result = mode === 'cursor'
+        ? this.documentSync.insertAtCursor(resolved, { origin: 'template', view: 'template' })
+        : this.documentSync.setValue(resolved, { origin: 'template', view: 'template' });
+      if (result.status === 'conflict') {
+        showToast('目前存在未解決的 Markdown 衝突，模板未套用；兩側內容仍保留。', 'error', 7000);
+        return;
+      }
       this.adapter.focus();
       showToast(`已套用模板：${tpl.name}`, 'success');
     });

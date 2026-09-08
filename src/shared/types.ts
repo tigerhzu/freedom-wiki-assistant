@@ -10,6 +10,11 @@ export type EditorKind =
 
 export type EditorMode = 'classic' | 'hybrid' | 'raw';
 
+export type AiProvider = '' | 'ornith' | 'azure';
+
+export const ORNITH_DEFAULT_BASE_URL = 'https://ornith.example.invalid/v1';
+export const ORNITH_DEFAULT_MODEL = 'Ornith-1.5-35B-A3B';
+
 export interface SelectionInfo {
   text: string;
   start: number;
@@ -107,6 +112,8 @@ export interface Settings {
   recentFolders: string[];
   /** Whether the "客戶" nav drawer was left open — restored after a reload. */
   customersPanelOpen: boolean;
+  /** Show the draggable pet shortcut to the customer directory. */
+  showPet: boolean;
   /**
    * Where the pet widget was last dragged to, as a fraction of the viewport
    * (0–1) so it re-lands sensibly regardless of window size; null = default
@@ -117,15 +124,19 @@ export interface Settings {
   /** Highest first-login onboarding version the user has completed. */
   onboardingVersion: number;
   /**
-   * Azure OpenAI settings for the "AI 排版" feature. Same field shape as the
+   * AI provider settings for the "AI 排版" feature. Azure keeps the same field shape as the
    * HaloPSA extension's options page (azureEndpoint/azureDeployment/
    * azureApiKey) so the two configs stay recognizable as one pattern, even
    * though each extension keeps its own chrome.storage.local (MV3 extensions
    * cannot share storage across separate extension IDs). Never hardcoded:
    * only ever read from here, which is only ever written by the settings
    * page. The API key must never be bundled at build time or read by the
-   * content script — only background/service-worker.ts touches it.
+   * content script — only background/service-worker.ts uses it for network calls.
    */
+  aiProvider: AiProvider;
+  ornithBaseUrl: string;
+  ornithModel: string;
+  ornithApiKey: string;
   azureEndpoint: string;
   azureDeployment: string;
   azureApiKey: string;
@@ -143,13 +154,18 @@ export const DEFAULT_SETTINGS: Settings = {
   defaultTextColor: 'red',
   customSwatches: [],
   /** Default brand palette for a fresh extension install. */
-  sidebarColor: '#a93d3d',
-  sidebarGradientColor: '#531abc',
+  sidebarColor: '#287dea',
+  sidebarGradientColor: '#287dea',
   recentFolders: [],
   customersPanelOpen: false,
+  showPet: true,
   petPosition: null,
   debugMode: false,
   onboardingVersion: 0,
+  aiProvider: '',
+  ornithBaseUrl: ORNITH_DEFAULT_BASE_URL,
+  ornithModel: ORNITH_DEFAULT_MODEL,
+  ornithApiKey: '',
   azureEndpoint: '',
   azureDeployment: '',
   azureApiKey: '',

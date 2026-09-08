@@ -129,6 +129,77 @@ body{
   margin-top:22px;border-radius:10px;background:#e6f2fc;border-left:46px solid #5aaef0;
   padding:14px 18px;color:#315d7d;font-size:13px
 }
+.future-view{display:none;background:#eef3f9;padding:12px}
+.future-shell{background:#fff;border:1px solid #d7dfeb;border-radius:14px;box-shadow:0 10px 24px rgba(31,45,74,.12);overflow:hidden}
+.future-topbar{align-items:center;background:linear-gradient(115deg,#151b32,#25214c);color:#fff;display:flex;gap:14px;min-height:62px;padding:10px 14px}
+.future-brand{align-items:center;display:flex;gap:9px;min-width:150px}
+.future-brand-mark{align-items:center;background:linear-gradient(145deg,#8d5cff,#4369e8);border-radius:9px;display:flex;font-size:16px;font-weight:800;height:34px;justify-content:center;width:34px}
+.future-brand-copy{display:grid;gap:2px}
+.future-brand-copy strong{font-size:14px;letter-spacing:.03em}
+.future-brand-copy span{color:#bfc8e2;font-size:10px}
+.future-crumb{color:#cbd4ec;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.future-topbar-actions{align-items:center;display:flex;gap:6px;margin-left:auto}
+.future-view button{font:inherit}
+.future-icon-button,.future-save-button,.future-side-action,.future-edit-trigger{border:1px solid #d8e0ee;border-radius:7px;cursor:pointer;transition:.16s ease}
+.future-icon-button{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.22);color:#fff;font-size:10px;padding:7px 9px}
+.future-icon-button:hover,.future-icon-button:focus-visible{background:rgba(255,255,255,.18);transform:translateY(-1px);outline:none}
+.future-save-button{background:#4f8df7;border-color:#75a7ff;color:#fff;font-size:10px;font-weight:700;padding:8px 11px}
+.future-save-button:hover,.future-save-button:focus-visible{background:#6aa0ff;transform:translateY(-1px);outline:none}
+.future-content{display:grid;grid-template-columns:142px minmax(0,1fr) 160px;min-height:380px}
+.future-rail{background:#f7f9fc;border-right:1px solid #e4e9f1;padding:17px 10px}
+.future-rail-label{color:#8a97ac;font-size:9px;font-weight:800;letter-spacing:.12em;margin:0 7px 10px;text-transform:uppercase}
+.future-rail-button{align-items:center;background:transparent;border:0;border-radius:7px;color:#506078;cursor:pointer;display:flex;font-size:11px;gap:8px;margin-bottom:4px;padding:9px 8px;text-align:left;width:100%}
+.future-rail-button:hover,.future-rail-button:focus-visible{background:#edf2ff;color:#3d5fc0;outline:none}
+.future-rail-button.active{background:#e9e7ff;color:#5a43bf;font-weight:700}
+.future-rail-icon{align-items:center;background:#e8edf5;border-radius:5px;color:#6c7c96;display:inline-flex;font-size:10px;height:22px;justify-content:center;width:22px}
+.future-rail-button.active .future-rail-icon{background:#d8d1ff;color:#6045cd}
+.future-rail-add{border-top:1px solid #e2e8f0;margin-top:12px;padding-top:12px}
+.future-canvas{background:#fff;padding:20px 22px}
+.future-canvas-top{align-items:center;display:flex;justify-content:space-between;margin-bottom:10px}
+.future-eyebrow{color:#765de0;font-size:9px;font-weight:800;letter-spacing:.12em}
+.future-edit-badge{background:#edf6ff;border-radius:999px;color:#2870b4;font-size:9px;padding:4px 8px}
+.future-title-row{align-items:flex-start;display:flex;gap:9px;justify-content:space-between}
+.future-title-row h1{border:0;color:#17223a;font-size:24px;line-height:1.2;margin:0;padding:0}
+.future-title-row h1[contenteditable="true"]{border-bottom:2px solid #8a72ef;outline:none;padding-bottom:3px}
+.future-edit-trigger{background:#fff;color:#52617b;font-size:10px;padding:6px 8px;white-space:nowrap}
+.future-edit-trigger:hover,.future-edit-trigger:focus-visible{border-color:#917cf0;color:#5f45c8;outline:none}
+.future-meta{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 15px}
+.future-chip{background:#f3f6fb;border:1px solid #e2e8f1;border-radius:999px;color:#65738a;font-size:10px;padding:5px 8px}
+.future-chip strong{color:#263752}
+.future-block-list{display:grid;gap:9px}
+.future-block{background:#fbfcfe;border:1px solid #e1e7f0;border-radius:9px;padding:11px 12px;transition:border-color .16s ease,box-shadow .16s ease,transform .16s ease}
+.future-block:hover{border-color:#b6a8f5;box-shadow:0 5px 14px rgba(88,71,180,.09);transform:translateY(-1px)}
+.future-block.is-focused{border-color:#8e7aeb;box-shadow:0 0 0 3px rgba(110,86,218,.12)}
+.future-block-heading{align-items:center;display:flex;gap:8px;margin-bottom:5px}
+.future-block-icon{align-items:center;background:#e9e5ff;border-radius:6px;color:#6850cd;display:inline-flex;font-size:12px;font-weight:800;height:24px;justify-content:center;width:24px}
+.future-block-title{color:#283953;font-size:11px;font-weight:800}
+.future-block-subtitle{color:#8a97aa;display:block;font-size:9px;margin-top:2px}
+.future-block p,.future-block ul{color:#617087;font-size:10px;line-height:1.55;margin:0}
+.future-block ul{padding-left:16px}
+.future-block li+li{margin-top:2px}
+.future-block.callout{background:#fff8e9;border-color:#ffe1a8;border-left:4px solid #f5b84b}
+.future-block.callout .future-block-icon{background:#ffe6b5;color:#b66d13}
+.future-block.review{background:#eef7ff;border-color:#cce6fb;border-left:4px solid #65afe8}
+.future-block.review .future-block-icon{background:#d8efff;color:#2875ac}
+.future-inspector{background:#f8faff;border-left:1px solid #e4e9f1;padding:17px 12px}
+.future-inspector-heading{color:#283953;font-size:11px;font-weight:800;margin:0 0 10px}
+.future-inspector-card{background:#fff;border:1px solid #e1e7f0;border-radius:8px;display:grid;gap:3px;margin-bottom:9px;padding:9px}
+.future-inspector-card strong{color:#42536e;font-size:10px}
+.future-inspector-card span{color:#8995a9;font-size:9px;line-height:1.4}
+.future-side-action{background:#fff;color:#51617b;font-size:10px;margin-top:7px;padding:8px;width:100%}
+.future-side-action:hover,.future-side-action:focus-visible{border-color:#9b88ed;color:#6048c9;outline:none}
+.future-side-action.primary{background:#6853d0;border-color:#6853d0;color:#fff}
+.future-side-action.primary:hover,.future-side-action.primary:focus-visible{background:#7966dd;color:#fff}
+.future-footer{align-items:center;background:#fafbfe;border-top:1px solid #e6eaf2;display:flex;gap:10px;justify-content:space-between;padding:9px 13px}
+.future-footer-status{color:#74829a;font-size:10px;line-height:1.4}
+.future-footer button{background:#fff;border:1px solid #cfd9e8;border-radius:7px;color:#50617b;cursor:pointer;font-size:10px;padding:7px 9px;white-space:nowrap}
+.future-footer button:hover,.future-footer button:focus-visible{border-color:#8976e6;color:#5d45c4;outline:none}
+.future-view.is-editing [data-future-editable]{background:#fff;border-radius:4px;box-shadow:0 0 0 2px rgba(112,87,220,.15);cursor:text;padding-left:3px;padding-right:3px}
+.future-view.is-preview-only .future-edit-trigger,.future-view.is-preview-only [data-future-action="edit"]{display:none}
+.future-view.is-preview-only [data-future-editable]{cursor:default}
+.future-view.is-saved .future-save-button{background:#2fa36b;border-color:#52bd88}
+.demo.is-future-preview > .topbar,.demo.is-future-preview > .bluebar,.demo.is-future-preview > .editor{display:none}
+.demo.is-future-preview > .future-view{display:block}
 .guide{
   display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:20px
 }
@@ -153,10 +224,106 @@ body{
   .brand,.customer{display:none}.topbar{justify-content:center;padding-left:10px;padding-right:10px}
   .editor{grid-template-columns:1fr}.source{min-height:390px}.preview{border-top:1px solid var(--line)}
   .guide{grid-template-columns:1fr 1fr}
+  .future-content{grid-template-columns:124px minmax(0,1fr)}
+  .future-inspector{display:none}
 }
 @media(max-width:620px){
   .page{padding:12px}.edit-tools{transform:scale(.88);transform-origin:center}
   .guide{grid-template-columns:1fr}.preview{padding:20px}.source{padding:18px}
+  .future-view{padding:8px}
+  .future-topbar{gap:8px;min-height:56px;padding:8px 10px}
+  .future-brand{min-width:auto}.future-brand-copy span,.future-crumb{display:none}
+  .future-topbar-actions{gap:4px}.future-icon-button,.future-save-button{font-size:9px;padding:6px 7px}
+  .future-content{display:block;min-height:0}.future-rail{display:none}
+  .future-canvas{padding:15px}.future-title-row h1{font-size:20px}
+  .future-footer{align-items:flex-start;flex-direction:column}.future-footer button{width:100%}
+}
+
+/* Future mode preview: a single-column Wiki page with the real Future chrome. */
+.future-view{background:#fff!important;padding:0!important}
+.future-mode-page{background:#fff;min-height:620px;position:relative}
+.future-mode-bar{align-items:center;background:#050505;color:#fff;display:flex;gap:10px;height:58px;overflow:hidden;padding:0 14px;white-space:nowrap}
+.future-mode-site{flex:0 0 auto;font-size:12px;font-weight:600}
+.future-mode-left-actions{align-items:center;display:flex;gap:5px}
+.future-mode-bar button{font:inherit}
+.future-mode-image-button,.future-mode-small-button,.future-mode-control,.future-mode-saved,.future-mode-page-button,.future-mode-close{border:1px solid #59616c;border-radius:4px;cursor:pointer;font-size:9px;height:25px;padding:0 8px;transition:.16s ease}
+.future-mode-image-button{background:linear-gradient(135deg,#4c79e8,#8957e7);border-color:#7f9bff;color:#fff;font-weight:700}
+.future-mode-color-button{background:linear-gradient(135deg,#ed4250 0 49%,#771b26 50%);border:1px solid #b8c0cd;border-radius:2px;cursor:pointer;height:22px;width:22px}
+.future-mode-small-button{background:#111;color:#fff}
+.future-mode-image-button:hover,.future-mode-small-button:hover,.future-mode-control:hover,.future-mode-saved:hover,.future-mode-page-button:hover,.future-mode-close:hover,.future-mode-color-button:hover{filter:brightness(1.22);transform:translateY(-1px)}
+.future-mode-account{color:#f5f6fa;font-size:10px;margin-left:auto}
+.future-mode-controls{align-items:center;display:flex;gap:5px}
+.future-mode-control{background:#111;color:#fff}
+.future-mode-ai{background:#173d68;border-color:#3e7dbb}
+.future-mode-active{background:#0874d8;border-color:#168df1;font-weight:700}
+.future-mode-separator{background:#525a66;height:25px;margin:0 3px;width:1px}
+.future-mode-saved{background:transparent;border-color:transparent;color:#e7f3e9;font-weight:700}
+.future-mode-page-button,.future-mode-close{background:transparent;border-color:transparent;color:#f3f5f8;font-weight:700}
+.future-mode-close{color:#f3a0a7}
+.future-mode-avatar{align-items:center;border-left:1px solid #2f3339;color:#d8dce4;display:inline-flex;font-size:13px;height:30px;margin-left:2px;padding-left:11px}
+.future-mode-scroll{height:562px;overflow-y:auto;position:relative;scrollbar-color:#8a8f97 #f4f5f7;scrollbar-width:thin}
+.future-mode-article{color:#475467;margin:0 auto;padding:27px 0 70px;width:min(860px,calc(100% - 56px))}
+.future-mode-block.future-block{background:transparent;border:0;border-radius:0;box-shadow:none;padding:0;transform:none}
+.future-mode-block.future-block:hover{background:transparent;border:0;box-shadow:none;transform:none}
+.future-mode-block.future-block.is-focused{border:0;box-shadow:0 0 0 3px rgba(115,89,220,.2);outline:0;border-radius:4px}
+.future-mode-article h1{border-bottom:2px solid #b4d4ee;color:#1f78d1;font-size:27px;line-height:1.2;margin:0 0 12px;padding:0 0 7px}
+.future-mode-article h2{border-bottom:1px solid #b9b9b9;color:#354052;font-size:20px;line-height:1.2;margin:22px 0 10px;padding:0 0 7px}
+.future-mode-meta,.future-mode-note,.future-mode-links-block p{font-size:11px;line-height:1.55;margin:5px 0}
+.future-mode-link,.future-mode-links a{color:#1479d1;cursor:pointer;text-decoration:underline}
+.future-mode-link:hover,.future-mode-links a:hover{color:#09529a}
+.future-mode-red-text{color:#f04242;font-weight:700}
+.future-mode-divider{border:0;border-top:1px solid #d9dde3;margin:17px 0 18px}
+.future-mode-links-block{margin-bottom:8px}
+.future-mode-links{display:grid;gap:3px}
+.future-mode-links a{font-size:11px}
+.future-mode-review-heading{margin-top:5px!important}
+.future-mode-callout.future-block{border:0!important;border-radius:8px;display:grid;grid-template-columns:54px minmax(0,1fr);margin:13px 0 16px;overflow:hidden;padding:0!important}
+.future-mode-callout-icon{align-items:center;display:flex;font-size:18px;font-weight:800;justify-content:center}
+.future-mode-callout-copy{font-size:11px;line-height:1.55;padding:14px 16px}
+.future-mode-orange{background:#fff0d9!important;color:#b65b19}
+.future-mode-orange .future-mode-callout-icon{background:#ffb549;color:#fff}
+.future-mode-blue{background:#dfeffb!important;color:#35678e}
+.future-mode-blue .future-mode-callout-icon{background:#5aaef0;color:#fff}
+.future-mode-red{background:#fde8e9!important;color:#c8454a}
+.future-mode-red .future-mode-callout-icon{background:#ea6b70;color:#fff}
+.future-mode-article .future-block-new{background:#f8f5ff;border:1px dashed #9d8ce9;border-radius:8px;margin-top:14px;padding:12px}
+.future-mode-article .future-block-new .future-block-heading{display:flex;gap:8px;margin-bottom:6px}
+.future-mode-article .future-block-new .future-block-icon{align-items:center;background:#e7e0ff;border-radius:5px;color:#684dcc;display:inline-flex;height:22px;justify-content:center;width:22px}
+.future-mode-article .future-block-new .future-block-title{color:#4f3bad;font-size:11px}
+.future-mode-article .future-block-new .future-block-subtitle{color:#8c82b5;display:block;font-size:9px}
+.future-mode-article .future-block-new p{color:#667085;font-size:10px;margin:0}
+.future-mode-floating-tools{display:grid;gap:8px;position:absolute;right:7px;top:18px}
+.future-mode-floating-tools button{align-items:center;background:#fff;border:1px solid #f2b2c9;border-radius:50%;box-shadow:0 2px 9px rgba(76,36,69,.12);color:#ef8fb0;cursor:pointer;display:flex;font-size:15px;height:27px;justify-content:center;padding:0;width:27px}
+.future-mode-floating-tools button:hover,.future-mode-floating-tools button:focus-visible{background:#fff4f8;outline:2px solid #f3c1d2;transform:translateY(-1px)}
+.future-mode-pet{background:transparent;border:0;bottom:18px;cursor:pointer;left:18px;padding:0;position:absolute;width:47px}
+.future-mode-pet:hover,.future-mode-pet:focus-visible{filter:drop-shadow(0 3px 5px rgba(0,0,0,.3));outline:none;transform:translateY(-2px)}
+.future-mode-pet svg{display:block;height:auto;width:47px}
+.future-mode-feedback{height:1px;overflow:hidden;position:absolute;width:1px;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+.future-view.is-saved .future-mode-saved{color:#8ff0a7}
+.future-view.is-editing [data-future-editable]{border-radius:3px;box-shadow:0 0 0 2px rgba(111,86,217,.2);padding-left:3px;padding-right:3px}
+@media(max-width:760px){
+  .future-mode-bar{gap:6px;height:52px;padding:0 9px}
+  .future-mode-site{font-size:10px}
+  .future-mode-left-actions,.future-mode-account{display:none}
+  .future-mode-controls{gap:3px;margin-left:auto}
+  .future-mode-image-button,.future-mode-small-button,.future-mode-control,.future-mode-saved,.future-mode-page-button,.future-mode-close{font-size:8px;height:23px;padding:0 5px}
+  .future-mode-separator{height:21px;margin:0 1px}
+  .future-mode-scroll{height:490px}
+  .future-mode-article{padding-top:21px;width:calc(100% - 34px)}
+  .future-mode-article h1{font-size:22px}
+  .future-mode-callout.future-block{grid-template-columns:38px minmax(0,1fr)}
+  .future-mode-callout-copy{font-size:10px;padding:11px 12px}
+  .future-mode-floating-tools{right:4px;top:12px}
+  .future-mode-floating-tools button{height:24px;width:24px}
+  .future-mode-pet{bottom:10px;left:9px;transform:scale(.85);transform-origin:bottom left}
+}
+@media(max-width:440px){
+  .future-mode-site{max-width:122px;overflow:hidden;text-overflow:ellipsis}
+  .future-mode-page-button,.future-mode-close{display:none}
+  .future-mode-scroll{height:450px}
+  .future-mode-article{width:calc(100% - 26px)}
+  .future-mode-article h1{font-size:19px}
+  .future-mode-article h2{font-size:17px}
 }
 </style>
 </head>
@@ -198,7 +365,6 @@ body{
           </button>
           <button class="mode future" data-key="future">
             Future
-            <span class="tooltip tooltip-right">Future 模式：使用較直接的內容編輯方式，也可使用模板與 AI 排版。</span>
           </button>
         </div>
       </div>
@@ -249,6 +415,108 @@ body{
           本頁可集中記錄 Tiger 的維運重點、變更紀錄與固定追蹤項目，方便後續接手與查閱。
         </div>
       </section>
+    </div>
+
+    <div class="future-view" data-future-view hidden aria-label="Future 模式互動預覽">
+      <div class="future-mode-page">
+        <header class="future-mode-bar">
+          <div class="future-mode-site">Freedom Systems Documentation site</div>
+          <div class="future-mode-left-actions">
+            <button class="future-mode-image-button" type="button" data-future-action="inspect-image">檢閱圖片</button>
+            <button class="future-mode-color-button" type="button" data-future-action="focus-reminder" aria-label="選取提醒區塊"></button>
+            <button class="future-mode-small-button" type="button" data-future-action="topology">拓譜</button>
+            <button class="future-mode-small-button" type="button" data-future-action="settings">設定</button>
+          </div>
+          <div class="future-mode-account">先知生技&nbsp;&nbsp;ascendobiotech</div>
+          <div class="future-mode-controls">
+            <button class="future-mode-control" type="button" data-future-action="template">模板</button>
+            <button class="future-mode-control future-mode-ai" type="button" data-future-action="ai-layout">AI 排版</button>
+            <span class="future-mode-separator" aria-hidden="true"></span>
+            <button class="future-mode-control" type="button" data-future-action="classic">Classic</button>
+            <button class="future-mode-control future-mode-active" type="button" data-future-action="future">Future</button>
+            <button class="future-mode-saved" type="button" data-future-action="save">✓ SAVED</button>
+            <button class="future-mode-page-button" type="button" data-future-action="page">🏷 PAGE</button>
+            <button class="future-mode-close" type="button" data-future-action="close">✕ CLOSE</button>
+            <span class="future-mode-avatar" aria-hidden="true">●</span>
+          </div>
+        </header>
+
+        <div class="future-mode-scroll">
+          <main class="future-mode-article" data-future-blocks>
+            <section class="future-block future-mode-block future-mode-overview" data-future-block="overview">
+              <h1 data-future-editable="true" contenteditable="false">ACB/先知生物</h1>
+              <p class="future-mode-meta" data-future-editable="true" contenteditable="false">三碼編寫: ACB</p>
+              <a class="future-mode-link" data-future-action="account" aria-label="Account Info/Plan">Account Info/Plan</a>
+              <p class="future-mode-note" data-future-editable="true" contenteditable="false">→ 我把 NAS 更新信件範例寫在<span class="future-mode-red-text">最下面的黃色區塊</span></p>
+            </section>
+
+            <section class="future-block future-mode-block future-mode-callout future-mode-orange" data-future-block="reminder">
+              <span class="future-mode-callout-icon" aria-hidden="true">⚠</span>
+              <div class="future-mode-callout-copy" data-future-editable="true" contenteditable="false">
+                案件一律cc窗口；每個月要提供TRPG監控報告<br>
+                sysaid會自動寄送<br>
+                監控報告請手動寄送<br>
+                客戶非常在意回應時間，收到案件需要馬上回覆<br>
+                客戶對設備更新有想知道的資料<br>
+                20250113<br>
+                新增1pw保險庫名為「ACB/先知生物(存放客戶網銀用)」，詳細說明請看ChangeJournal。<br>
+                2025/6/16<br>
+                未來將改變通報案件模式，除新人到職、離職、人員權限設定、網路設定、防火牆、機房相關設備...等問題外，個人電腦報修，將由設備使用者自行通報維修，並請在案件完成後的結案信件中cc Allen，並以Allen為主要聯絡窗口。
+              </div>
+            </section>
+
+            <hr class="future-mode-divider">
+            <section class="future-block future-mode-block future-mode-links-block" data-future-block="links">
+              <p data-future-editable="true" contenteditable="false">以下連結只有工程部看得到</p>
+              <nav class="future-mode-links" aria-label="工程部連結">
+                <a data-future-action="link">ProvisioningData</a>
+                <a data-future-action="link">ChangeJournal</a>
+                <a data-future-action="link">SOP</a>
+                <a data-future-action="link">其他事項</a>
+              </nav>
+            </section>
+
+            <section class="future-block future-mode-block future-mode-review-heading" data-future-block="review">
+              <h2>Review</h2>
+              <a class="future-mode-link" data-future-action="review-link">ACB_2026Q1review</a>
+            </section>
+
+            <section class="future-block future-mode-block future-mode-callout future-mode-blue" data-future-block="review-note">
+              <span class="future-mode-callout-icon" aria-hidden="true">●</span>
+              <div class="future-mode-callout-copy" data-future-editable="true" contenteditable="false">PRTG每個月1號都會自動把上個月的監控報告寄信給sysaid，再請起報告報告提供窗口</div>
+            </section>
+
+            <section class="future-block future-mode-block future-mode-callout future-mode-red" data-future-block="vpn">
+              <span class="future-mode-callout-icon" aria-hidden="true">×</span>
+              <div class="future-mode-callout-copy" data-future-editable="true" contenteditable="false">請用VPN連線到客戶環境</div>
+            </section>
+
+            <section class="future-block future-mode-block future-mode-callout future-mode-orange" data-future-block="permission">
+              <span class="future-mode-callout-icon" aria-hidden="true">⚠</span>
+              <div class="future-mode-callout-copy" data-future-editable="true" contenteditable="false">!!!!任何有關NAS或權限的變動，須完整填寫在sysaid中，並註明修改了甚麼，獲得了甚麼權限，以利後續報告的提供!!!!一定要!!!!</div>
+            </section>
+
+            <section class="future-block future-mode-block future-mode-callout future-mode-orange" data-future-block="support">
+              <span class="future-mode-callout-icon" aria-hidden="true">⚠</span>
+              <div class="future-mode-callout-copy" data-future-editable="true" contenteditable="false">如有任何設備上的問題討論，請先準備好可能需要用戶端協助配合的部分？維修預計所需的時間、造成的影響，如成效不好預期，可能的備案...等資訊一定要!!!!<br><br><strong>範本：</strong><br><br>Erica 您好：<br><br>針對 ACB-NAS-office（NAS 名稱：QNAS01）目前偵測到的韌體更新，預計將於今日或下週進行更新作業。</div>
+            </section>
+          </main>
+
+          <div class="future-mode-floating-tools" aria-label="Future 浮動工具">
+            <button type="button" data-future-action="floating-blocks" aria-label="開啟區塊工具">⊞</button>
+            <button type="button" data-future-action="floating-language" aria-label="開啟語言工具">A↕</button>
+          </div>
+        </div>
+
+        <button class="future-mode-pet" type="button" data-future-action="pet" aria-label="開啟 pet 工具">
+          <svg viewBox="0 0 48 42" aria-hidden="true">
+            <path d="M10 12h28v6h4v13h-5v7h-6v-7H17v7h-6v-7H6V18h4z" fill="#ff812d" stroke="#151515" stroke-width="2.5" stroke-linejoin="round"></path>
+            <path d="M6 22H2v8h6M42 22h4v8h-6M17 12V7h5v5M31 12V7h-5v5" fill="none" stroke="#151515" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>
+            <circle cx="18" cy="22" r="2" fill="#151515"></circle><circle cx="30" cy="22" r="2" fill="#151515"></circle>
+          </svg>
+        </button>
+        <span class="future-mode-feedback" data-future-feedback aria-live="polite">Future 互動頁已開啟</span>
+      </div>
     </div>
   </div>
 

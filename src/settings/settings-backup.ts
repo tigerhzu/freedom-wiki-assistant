@@ -7,6 +7,7 @@ import {
   STORAGE_KEYS,
 } from '../shared/storage';
 import { DEFAULT_SETTINGS, type Customer, type CustomerBranch, type CustomerBranchMap, type CustomerFolder, type Settings, type Template } from '../shared/types';
+import { normalizeAiProviderSettings } from '../shared/ai-provider-settings';
 
 /** Portable snapshot of every user-owned value stored by the extension. */
 export interface FullSettingsBackup {
@@ -34,7 +35,10 @@ export async function exportFullSettings(options: { includeApiKey?: boolean } = 
     getCustomerFolders(),
     getCustomerBranches(),
   ]);
-  if (options.includeApiKey === false) settings.azureApiKey = '';
+  if (options.includeApiKey === false) {
+    settings.azureApiKey = '';
+    settings.ornithApiKey = '';
+  }
   const payload: FullSettingsBackup = {
     format: 'freedom-wiki-assistant-settings',
     version: 1,
@@ -94,12 +98,13 @@ function parseFullSettingsBackup(json: string): FullSettingsBackup {
 
 function normalizeSettings(value: unknown): Settings {
   if (!isRecord(value)) throw new Error('設定檔缺少有效的 settings');
-  const settings = { ...DEFAULT_SETTINGS, ...value } as Settings;
+  let settings = { ...DEFAULT_SETTINGS, ...value } as Settings;
   const booleanKeys: Array<keyof Settings> = [
     'enableFormattingMenu',
     'enableImageDrop',
     'enableClipboardImage',
     'customersPanelOpen',
+    'showPet',
     'debugMode',
   ];
   const stringKeys: Array<keyof Settings> = [
@@ -108,6 +113,9 @@ function normalizeSettings(value: unknown): Settings {
     'defaultTextColor',
     'sidebarColor',
     'sidebarGradientColor',
+    'ornithBaseUrl',
+    'ornithModel',
+    'ornithApiKey',
     'azureEndpoint',
     'azureDeployment',
     'azureApiKey',
@@ -137,6 +145,12 @@ function normalizeSettings(value: unknown): Settings {
   if (settings.petPosition !== null && !isRecord(settings.petPosition)) {
     throw new Error('設定檔的 petPosition 格式不正確');
   }
+  if (!['', 'ornith', 'azure'].includes(settings.aiProvider)) {
+    throw new Error('設定檔的 aiProvider 格式不正確');
+  }
+  settings = normalizeAiProviderSettings(settings, {
+    legacyAzureDefault: !Object.prototype.hasOwnProperty.call(value, 'aiProvider'),
+  });
   return settings;
 }
 

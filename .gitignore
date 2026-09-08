@@ -25,6 +25,8 @@ AIQ_REPORT_EVIDENCE.md
 
 ## Local assistant / IDE configuration
 .claude/
+.codex/
+.memory/
 .git-legacy-backup/
 .vscode/
 .idea/
@@ -32,6 +34,7 @@ AIQ_REPORT_EVIDENCE.md
 
 ## Internal discovery notes can contain real Wiki paths or system details
 docs/DISCOVERY.md
+docs/EDITOR_TEST_REPORT.md
 
 ## OS files
 .DS_Store

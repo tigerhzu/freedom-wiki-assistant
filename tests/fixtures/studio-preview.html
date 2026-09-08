@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wiki Studio · 互動預覽</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#f2f5fa;color:#202c3e;font:14px/1.75 "Segoe UI","Microsoft JhengHei",sans-serif}
+    header{height:64px;background:#fff;border-bottom:1px solid #dce4ef;display:flex;align-items:center;padding:0 26px;gap:12px;position:relative;z-index:2147483100}
+    .v-toolbar__content{display:flex;align-items:center;gap:12px;width:100%;min-width:0}.brand-mark{display:grid;place-items:center;width:32px;height:32px;flex-shrink:0;border-radius: 11px;background:#287dea;color:white;font:600 17px "Segoe UI Variable", "Segoe UI", "Microsoft JhengHei", system-ui, sans-serif}.v-toolbar__title{font-weight:600;font-size:17px;letter-spacing:-.02em;flex:1;min-width:0}
+    .native-actions{display:flex;align-items:center;flex-shrink:0;gap:6px}.native-actions>button{border:0;background:transparent;color:#68778b;font:600 11px "Segoe UI",sans-serif;border-radius: 11px;padding:8px 11px;cursor:pointer}.native-actions>.save{background:#287dea;color:white}.mdi-check{display:inline-block}
+    .page-bar{display:flex;justify-content:space-between;padding:14px 28px;color:#68778b;font-size:12px}.page-bar a{color:#287dea}.editor-markdown{display:grid;grid-template-columns:1fr 1fr;min-height:calc(100vh - 120px)}.source-pane{padding:24px;display:flex;flex-direction:column;gap:16px}.source-label{font-size:11px;letter-spacing:normal;color:#68778b}.source-pane textarea{min-height:calc(100vh - 190px);resize:vertical;width:100%;padding:24px;background:#202c3e;border:0;border-radius: 11px;color:#e9f2ff;font:13px/1.9 Consolas,monospace}.editor-markdown-preview{max-height:calc(100vh - 120px);overflow:auto;border-left:1px solid #dce4ef}.editor-markdown-preview-content{padding:32px}.contents h1{font-size:35px;font-weight:600;letter-spacing:normal;line-height:1.4;margin:0 0 20px}.contents h2{font-size:22px;font-weight:600;margin:34px 0 12px;line-height:1.5}.contents h3{font-size:17px}.contents p{margin:16px 0}.contents ul{padding-left:24px}.contents li{padding:3px 0}.contents blockquote{margin:26px 0;border-left:3px solid #287dea;padding:4px 20px;background:#e9f2ff;color:#456589}.contents table{border-collapse:collapse;width:100%;font-size:14px;margin:20px 0}.contents th,.contents td{text-align:left;padding:13px 16px;border:1px solid #dce4ef}.contents th{background:#f2f5fa;font-weight:600}.contents code{background:#e9f2ff;border-radius: 2px;padding:2px 5px;font:13px Consolas,monospace}.contents a{color:#287dea}.preview-status{position:fixed;left:18px;bottom:15px;font-size:10px;letter-spacing:.04em;color:#68778b;z-index:2147483050;padding:5px 9px;background:#f2f5fa;border:1px solid #dce4ef;border-radius: 11px;pointer-events:none}
+    @media(max-width:1000px){header{padding:0 12px;gap:6px}.v-toolbar__content{gap:6px}.brand-mark{display:none}.v-toolbar__title{font-size:13px}.native-actions>button{padding:7px}.native-actions{gap:3px}}@media(max-width:640px){header{height:104px;padding:10px 12px}.v-toolbar__content{flex-wrap:wrap}.v-toolbar__title{flex-basis:25%}.native-actions{width:100%;justify-content:flex-end}.editor-markdown{grid-template-columns:1fr}.editor-markdown-preview{display:none}.page-bar{padding:12px}.preview-status{display:none}}
+  </style>
+</head>
+<body>
+  <header class="nav-header"><div class="v-toolbar__content"><span class="brand-mark">w.</span><div class="v-toolbar__title">Wiki Studio</div><div class="native-actions"><button class="save"><i class="mdi-check"></i> SAVE</button><button>PAGE</button><button class="native-close">CLOSE</button></div></div></header>
+  <div class="page-bar"><span>知識庫 / 工程團隊 / 工作站部署指南</span><a href="/src/settings/settings.html?preview=1" target="_blank">設定 ↗</a></div>
+  <main class="editor-markdown"><div class="source-pane"><span class="source-label">MARKDOWN SOURCE</span><textarea aria-label="Wiki Markdown 原始碼"></textarea></div><section class="editor-markdown-preview"><div class="editor-markdown-preview-content"><article class="contents"></article></div></section></main>
+  <div class="preview-status" role="status">互動預覽 · 範例資料</div>
+  <script type="module" src="/tests/fixtures/studio-preview.ts"></script>
+</body>
+</html>

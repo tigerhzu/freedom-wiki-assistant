@@ -1,5 +1,5 @@
 .editor-markdown-preview.fwa-mode-frame {
-  background: #fff;
+  background: #f2f5fa;
   display: flex !important;
   flex-direction: column !important;
   position: relative;
@@ -7,33 +7,90 @@
 
 .fwa-mode-toolbar {
   align-items: center;
-  background: transparent;
-  border: 0;
+  background: #eaf0f7;
+  border: 1px solid #dce4ef80;
+  border-radius: 11px;
   display: inline-flex;
   flex: 0 0 auto;
-  gap: 4px;
+  gap: 2px;
   margin: 0 8px 0 0;
-  padding: 0;
+  padding: 3px;
 }
 
 .fwa-mode-button {
+  align-items: center;
   background: transparent;
-  border: 1px solid #6e7781;
-  border-radius: 4px;
-  color: #fff;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  color: #505872;
   cursor: pointer;
+  display: inline-flex;
   font: 600 12px/1.2 system-ui, sans-serif;
-  padding: 5px 9px;
+  gap: 6px;
+  min-height: 30px;
+  padding: 5px 11px;
   white-space: nowrap;
 }
 
-.fwa-mode-button:hover { background: #ddf4ff; border-color: #54aeff; color: #24292f; }
+.fwa-mode-button:hover { background: #fff; color: #202c3e; }
+.fwa-mode-button:focus-visible { outline: 2px solid #287dea; outline-offset: 2px; }
 
 .fwa-mode-button.is-active {
-  background: #0969da;
-  border-color: #0969da;
-  color: #fff;
+  background: #fff;
+  border-color: #fff;
+  color: #246dc5;
+  box-shadow: 0 1px 4px #19395920;
 }
+
+.fwa-visual-toolbar {
+  align-items: center;
+  background: #fff;
+  backdrop-filter: none;
+  border-bottom: 1px solid #cbd5e1;
+  box-sizing: border-box;
+  color: #496581;
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  min-height: 48px;
+  padding: 6px 24px;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  font: 13px/1.4 "Segoe UI Variable", "Segoe UI", "Microsoft JhengHei", system-ui, sans-serif;
+}
+
+.fwa-visual-toolbar[hidden] { display: none; }
+.fwa-visual-toolbar:focus-visible { outline: 2px solid #287dea; outline-offset: -3px; }
+.fwa-visual-selection-label { color: #6c809b; font-size: 11px; margin-right: 10px; letter-spacing: normal; }
+.fwa-visual-tool-group { align-items: center; display: flex; gap: 3px; }
+.fwa-visual-tool-group + .fwa-visual-tool-group { border-left: 1px solid #d8e2ef; padding-left: 8px; }
+.fwa-visual-tool {
+  align-items: center;
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  color: #47637f;
+  cursor: pointer;
+  display: inline-flex;
+  font: 500 13px/1.2 "Segoe UI Variable", "Segoe UI", "Microsoft JhengHei", system-ui, sans-serif;
+  gap: 5px;
+  justify-content: center;
+  min-height: 34px;
+  min-width: 34px;
+  padding: 7px 9px;
+  white-space: nowrap;
+}
+.fwa-visual-tool:hover:not(:disabled) { background: #e2eeff; color: #246dc5; }
+.fwa-visual-tool:focus-visible { background: #e2eeff; outline: 2px solid #287dea; outline-offset: 1px; }
+.fwa-visual-tool:disabled { color: #9bacc0; cursor: default; }
+.fwa-visual-toolbar .fwa-icon,
+.fwa-mode-toolbar .fwa-icon { display: block; flex: 0 0 auto; }
+.fwa-visual-tool-more { background: #e9f2ff; border-color: #dce9fb; color: #246dc5; margin-left: 3px; }
+.fwa-visual-toolbar-guide { color: #6c809b; font: 11px/1.5 "Segoe UI Variable", "Segoe UI", "Microsoft JhengHei", system-ui, sans-serif; margin-left: 12px; white-space: nowrap; }
 
 .editor-markdown-preview.fwa-mode-frame > .editor-markdown-preview-content {
   flex: 1 1 auto;
@@ -51,6 +108,8 @@ html.fwa-hybrid-page-open body { overflow: hidden !important; }
   margin: 0 !important;
   max-height: none !important;
   max-width: none !important;
+  overflow-anchor: none;
+  overflow: auto !important;
   position: fixed !important;
   right: 0 !important;
   top: var(--fwa-future-top, 50px) !important;
@@ -58,9 +117,15 @@ html.fwa-hybrid-page-open body { overflow: hidden !important; }
   z-index: 2147483000 !important;
 }
 
-.fwa-hybrid-fullscreen > .editor-markdown-preview-content {
-  background: #fff;
-  overflow: auto !important;
+/* Wiki.js' scrollSync animates editorPreviewContainer.scrollTop (this
+   element) toward the CodeMirror cursor line after every source change,
+   which yanks the Future document away from where the user is typing.
+   Making the outer fullscreen frame the scroll container instead turns
+   those scrollTop writes into no-ops without touching Classic mode. */
+.editor-markdown-preview.fwa-hybrid-fullscreen > .editor-markdown-preview-content {
+  background: #f2f5fa;
+  flex: 0 0 auto;
+  overflow: visible !important;
   padding: 0 !important;
 }
 
@@ -69,11 +134,15 @@ html.fwa-hybrid-page-open body { overflow: hidden !important; }
    the same layout classes once the new root is ready; these temporary shell
    rules prevent the page from flashing full-width/left-aligned in between. */
 .fwa-hybrid-fullscreen > .editor-markdown-preview-content.fwa-future-shell > :first-child {
+  background: #fff;
+  border: 1px solid #e1e8f1;
+  border-radius: 16px;
+  box-shadow: 0 6px 24px #23456606;
   box-sizing: border-box;
-  margin: 0 auto;
-  min-height: calc(100vh - var(--fwa-future-top, 50px));
-  padding: 28px clamp(24px, 7vw, 110px) 80px;
-  width: min(100%, 1500px);
+  margin: 28px auto 64px;
+  min-height: calc(100vh - var(--fwa-future-top, 50px) - 122px);
+  padding: 48px clamp(24px, 5vw, 72px) 88px;
+  width: min(calc(100% - 64px), 1000px);
 }
 
 .fwa-visual-document {
@@ -82,19 +151,26 @@ html.fwa-hybrid-page-open body { overflow: hidden !important; }
 }
 
 .fwa-hybrid-document {
+  background: #fff;
+  border: 1px solid #e1e8f1;
+  border-radius: 16px;
+  box-shadow: 0 6px 24px #23456606;
   box-sizing: border-box;
-  margin: 0 auto;
-  min-height: calc(100vh - var(--fwa-future-top, 50px));
+  font-family: "Segoe UI Variable", "Segoe UI", "Microsoft JhengHei", system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.85;
+  margin: 28px auto 64px;
+  min-height: calc(100vh - var(--fwa-future-top, 50px) - 122px);
   outline: none;
-  padding: 28px clamp(24px, 7vw, 110px) 80px;
-  width: min(100%, 1500px);
+  padding: 48px clamp(24px, 5vw, 72px) 88px;
+  width: min(calc(100% - 64px), 1000px);
 }
 
 .fwa-visual-document:focus { outline: none; }
 .fwa-visual-document [contenteditable="false"] { cursor: default; }
 .fwa-hybrid-document img {
   max-height: min(75vh, 900px);
-  max-width: min(100%, 1100px);
+  max-width: 100%;
   object-fit: contain;
 }
 
@@ -113,20 +189,20 @@ html.fwa-hybrid-page-open body { overflow: hidden !important; }
 
 .fwa-hybrid-upload-placeholder,
 .fwa-hybrid-uploaded-image-fallback {
-  background: #ddf4ff;
-  border: 1px solid #54aeff;
-  border-radius: 4px;
-  color: #0969da;
+  background: #e9f2ff;
+  border: 1px solid #cadcf1;
+  border-radius: 14px;
+  color: #287dea;
   display: inline-block;
   font: 600 12px/1.4 system-ui, sans-serif;
   padding: 3px 7px;
 }
 
 .fwa-hybrid-source {
-  background: #0d1117;
+  background: #202c3e;
   border: 0;
   box-sizing: border-box;
-  color: #e6edf3;
+  color: #f2f5fa;
   display: block;
   font: 13px/1.55 Consolas, "Courier New", monospace;
   min-height: 92px;
@@ -138,7 +214,7 @@ html.fwa-hybrid-page-open body { overflow: hidden !important; }
 }
 
 .fwa-raw-editor {
-  background: #0d1117;
+  background: #202c3e;
   display: flex;
   flex: 1 1 auto;
   min-height: 0;
@@ -150,5 +226,28 @@ html.fwa-hybrid-page-open body { overflow: hidden !important; }
 @media (max-width: 900px) {
   .fwa-mode-toolbar > span { display: none; }
   .fwa-mode-button { padding-left: 7px; padding-right: 7px; }
-  .fwa-hybrid-document { padding-left: 18px; padding-right: 18px; }
+  .fwa-visual-toolbar { gap: 6px; padding: 9px 16px; }
+  .fwa-visual-selection-label { display: none; }
+  .fwa-visual-toolbar-guide { margin-left: 6px; }
+  .fwa-hybrid-document,
+  .fwa-hybrid-fullscreen > .editor-markdown-preview-content.fwa-future-shell > :first-child {
+    margin-top: 20px;
+    padding: 32px 28px 64px;
+    width: calc(100% - 32px);
+  }
+}
+
+@media (max-width: 580px) {
+  .fwa-visual-toolbar { justify-content: flex-start; padding: 8px; gap: 4px; }
+  .fwa-visual-tool { padding: 6px 7px; }
+  .fwa-visual-toolbar-guide { display: none; }
+  .fwa-hybrid-document,
+  .fwa-hybrid-fullscreen > .editor-markdown-preview-content.fwa-future-shell > :first-child {
+    border-left: 0;
+    border-right: 0;
+    border-radius: 0;
+    margin: 12px 0 24px;
+    padding: 26px 20px 56px;
+    width: 100%;
+  }
 }

@@ -22,9 +22,10 @@ import {
 } from '../customers/customer-service';
 import { PetWidget } from '../pet/pet-widget';
 import { sendMessage } from '../shared/messages';
-import { getSettings, saveSettings } from '../shared/storage';
+import { getSettings, saveSettings, STORAGE_KEYS } from '../shared/storage';
 import type { Customer, CustomerBranch, CustomerFolder } from '../shared/types';
 import type { AiLayoutFeature } from './ai-layout';
+import { openAssetReviewModal } from './asset-review';
 import { readCurrentPageTitle } from './page-title';
 import { openCurrentPageTopology } from './page-topology';
 import {
@@ -37,6 +38,7 @@ import {
 } from './sidebar-appearance';
 import type { TemplatePanel } from './template-panel';
 import { createShadowHost, el, openModal, showToast } from './ui';
+import { icon } from './icons';
 
 const TOP_CONTROLS_STYLE_ID = 'fwa-editor-actions-style';
 
@@ -47,10 +49,18 @@ function stopTopControlPointerEvent(event: Event): void {
 
 function ensureTopControlsStyle(): void {
   if (document.getElementById(TOP_CONTROLS_STYLE_ID)) return;
+  const styleParent = document.head ?? document.documentElement;
+  if (!styleParent) {
+    // The manifest runs the content script at document_start. On a very early
+    // parser tick even <html> may not exist yet; retry once the DOM root is
+    // available instead of aborting MainNav (and all later content features).
+    document.addEventListener('DOMContentLoaded', ensureTopControlsStyle, { once: true });
+    return;
+  }
   const style = document.createElement('style');
   style.id = TOP_CONTROLS_STYLE_ID;
   style.textContent = editorActionsCss;
-  document.head.appendChild(style);
+  styleParent.appendChild(style);
 }
 
 function isDarkHeaderBackground(backgroundColor: string): boolean {
@@ -70,37 +80,95 @@ function isDarkHeaderBackground(backgroundColor: string): boolean {
   return luminance < 0.45;
 }
 
-/**
- * Top-level navigation, mounted once for the lifetime of the content script
- * (unlike the editor-only features in index.ts) so it's visible on every
- * wiki page. A single pet-widget button (see pet/pet-widget.ts) opens a menu
- * of the extension's browsing actions: 檢閱照片 / 客戶 / 頁面拓譜圖.
- *
- *  - 模板與 AI 排版 are mounted in Wiki.js' native editor header
- *    only while an editor is available. They are deliberately not shown in
- *    the browsing-only pet menu.
- *  - 檢閱照片 calls the existing asset-review modal directly — that feature
- *    never depended on an editor adapter to begin with.
- *  - 客戶 opens a collapsible directory drawer backed by
- *    customers/customer-service.ts (chrome.storage.local — never hardcoded).
- *    Each customer row expands into that customer's own branches (sub-pages),
- *    which the user adds/edits/reorders from the same drawer.
- */
+interface TopHeaderMount {
+  title: HTMLElement | null;
+  host: HTMLElement;
+}
+
+interface WorkspaceAction {
+  name: string;
+  description: string;
+  keywords: string;
+  group: '瀏覽與整理' | '文章編輯' | '偏好設定';
+  symbol: Parameters<typeof icon>[0];
+  available: boolean;
+  run: () => void;
+}
+
+interface DirectoryMenuAction {
+  label: string;
+  symbol?: Parameters<typeof icon>[0];
+  destructive?: boolean;
+  disabled?: boolean;
+  run: () => void;
+}
+
+/** Whitespace-separated queries match every term, regardless of case. */
+export function matchesWorkspaceQuery(query: string, ...fields: string[]): boolean {
+  const text = fields.join(' ').normalize('NFKC').toLocaleLowerCase();
+  return query.normalize('NFKC').toLocaleLowerCase().trim().split(/\s+/).every((term) => text.includes(term));
+}
+
+/** Keep a floating directory inside the usable viewport, beside its Pet. */
+export function customerPanelPosition(anchor: Pick<DOMRect, 'left' | 'right' | 'top' | 'bottom'> | null, viewport: { width: number; height: number }, headerBottom: number): { left: number; top: number; width: number; height: number } {
+  const margin = 12;
+  const gap = 12;
+  const width = Math.min(436, Math.max(0, viewport.width - margin * 2));
+  const safeTop = Math.min(Math.max(margin, headerBottom + gap), Math.max(margin, viewport.height - 120));
+  const height = Math.min(550, Math.max(0, viewport.height - safeTop - margin));
+  let left = viewport.width - width - margin;
+  let top = safeTop;
+  if (anchor) {
+    if (anchor.left - gap - width >= margin) {
+      left = anchor.left - gap - width;
+      top = anchor.bottom - height;
+    } else if (anchor.right + gap + width <= viewport.width - margin) {
+      left = anchor.right + gap;
+      top = anchor.bottom - height;
+    } else {
+      left = anchor.left;
+      top = anchor.top - gap - height;
+    }
+  }
+  return {
+    left: Math.max(margin, Math.min(left, viewport.width - width - margin)),
+    top: Math.max(safeTop, Math.min(top, viewport.height - height - margin)),
+    width, height,
+  };
+}
+
 export class MainNav {
   private readonly pet = new PetWidget();
+  private petVisible = true;
+  private petVisibilityVersion = 0;
+  private removePetPositionListener: (() => void) | null = null;
+  private attached = false;
   private templatePanel: TemplatePanel | null = null;
   private aiLayout: AiLayoutFeature | null = null;
   private customerPanel: HTMLElement | null = null;
   private customerPanelHost: HTMLElement | null = null;
   private customerListEl: HTMLElement | null = null;
-  private stopFollowingPet: (() => void) | null = null;
+  private customerSearch = '';
+  private customerReturnFocus: HTMLElement | null = null;
+  private customerCountEl: HTMLElement | null = null;
+  private customerRenderVersion = 0;
+  private directoryMenu: { element: HTMLElement; trigger: HTMLButtonElement } | null = null;
+  private workspaceHost: HTMLElement | null = null;
+  private workspaceSearch: HTMLInputElement | null = null;
+  private workspaceResults: HTMLElement | null = null;
+  private workspaceControl: HTMLButtonElement | null = null;
+  private workspaceReturnFocus: HTMLElement | null = null;
   private topologyControl: HTMLButtonElement | null = null;
+  private assetReviewControl: HTMLButtonElement | null = null;
   private sidebarColorControl: HTMLButtonElement | null = null;
   private settingsControl: HTMLButtonElement | null = null;
   private editorActions: HTMLElement | null = null;
   private topControlsObserver: MutationObserver | null = null;
   private topControlsScheduled = false;
   private topControlsHost: HTMLElement | null = null;
+  private topControlsResizeObserver: ResizeObserver | null = null;
+  private onWindowResize: (() => void) | null = null;
+  private assetReviewOpening = false;
   private draggingCustomerId: string | null = null;
   /**
    * Which customers are currently expanded, by branch key. Kept in memory
@@ -111,6 +179,9 @@ export class MainNav {
   private readonly dismissCustomerPanelOnPointerDown = (event: PointerEvent): void => {
     if (!this.customerPanel) return;
     const path = event.composedPath();
+    if (this.directoryMenu && !path.includes(this.directoryMenu.element) && !path.includes(this.directoryMenu.trigger)) {
+      this.closeDirectoryMenu(false);
+    }
     const clickedInsidePanel = this.customerPanelHost !== null && path.includes(this.customerPanelHost);
     const clickedPet = path.some(
       (node) => node instanceof HTMLElement && node.id === 'fwa-pet-host',
@@ -130,17 +201,113 @@ export class MainNav {
     }
   };
   private readonly dismissCustomerPanelOnEscape = (event: KeyboardEvent): void => {
-    if (event.key === 'Escape') this.closeCustomerDrawer();
+    if (event.defaultPrevented) return;
+    const modalOpen = Array.from(document.querySelectorAll('[id^="fwa-"]')).some((host) => host.shadowRoot?.querySelector('.fwa-modal'));
+    if (event.key === 'Escape' && !modalOpen) {
+      if (this.directoryMenu) {
+        event.preventDefault();
+        event.stopPropagation();
+        this.closeDirectoryMenu();
+        return;
+      }
+      this.closeCustomerDrawer();
+    }
+  };
+  private readonly onWorkspaceShortcut = (event: KeyboardEvent): void => {
+    if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'k') {
+      event.preventDefault();
+      this.openWorkspace();
+    }
+  };
+  private readonly onSettingsChanged = (changes: Record<string, chrome.storage.StorageChange>, area: string): void => {
+    const change = changes[STORAGE_KEYS.settings];
+    if (area === 'local' && change && change.oldValue?.showPet !== change.newValue?.showPet) void this.refreshPetVisibility();
   };
 
   attach(): void {
+    if (this.attached) return;
+    if (!document.documentElement) {
+      // Keep the document_start entry point safe on the earliest parser tick.
+      // index.ts will otherwise continue into independent features before a
+      // root exists, so retry the complete navigation attach here only after
+      // the DOM can accept a host and MutationObserver target.
+      document.addEventListener('DOMContentLoaded', () => this.attach(), { once: true });
+      return;
+    }
+    this.attached = true;
+    this.pet.setVisible(false);
     this.pet.attach(() => this.onCustomersClick());
+    this.removePetPositionListener = this.pet.onPositionChange(() => this.updateCustomerDrawerInset());
+    chrome.storage.onChanged.addListener(this.onSettingsChanged);
+    void this.refreshPetVisibility();
+    document.addEventListener('keydown', this.onWorkspaceShortcut);
     ensureTopControlsStyle();
     this.mountTopControls();
-    window.addEventListener('resize', () => this.scheduleTopControlsMount());
-    this.topControlsObserver = new MutationObserver(() => this.scheduleTopControlsMount());
+    this.onWindowResize = () => {
+      this.scheduleTopControlsMount();
+      this.fitTopControls();
+      this.updateCustomerDrawerInset();
+    };
+    window.addEventListener('resize', this.onWindowResize);
+    this.topControlsObserver = new MutationObserver(() => {
+      if (!chrome.runtime?.id) {
+        // Extension reloaded/updated — release this orphaned script's
+        // document-wide observer and resize listener.
+        this.topControlsObserver?.disconnect();
+        this.topControlsResizeObserver?.disconnect();
+        document.removeEventListener('keydown', this.onWorkspaceShortcut);
+        if (this.onWindowResize) window.removeEventListener('resize', this.onWindowResize);
+        chrome.storage.onChanged.removeListener(this.onSettingsChanged);
+        this.removePetPositionListener?.();
+        this.pet.detach();
+        return;
+      }
+      this.scheduleTopControlsMount();
+    });
     this.topControlsObserver.observe(document.documentElement, { childList: true, subtree: true });
     void this.restoreExpandedState();
+  }
+
+  async refreshPetVisibility(): Promise<void> {
+    const version = ++this.petVisibilityVersion;
+    try {
+      const settings = await getSettings();
+      if (version !== this.petVisibilityVersion || !this.attached) return;
+      this.petVisible = settings.showPet;
+      this.pet.setVisible(this.petVisible);
+      this.renderWorkspaceActions();
+    } catch (error) {
+      this.reportTopControlError('Pet 顯示設定', error);
+    }
+  }
+
+  private async togglePetVisibility(): Promise<void> {
+    try {
+      const settings = await getSettings();
+      await saveSettings({ ...settings, showPet: !settings.showPet });
+      await this.refreshPetVisibility();
+      showToast(this.petVisible ? 'Pet 已顯示，點擊即可開啟客戶目錄' : 'Pet 已隱藏，可從工作台或設定再次顯示', 'info');
+    } catch (error) {
+      this.reportTopControlError('Pet 顯示設定', error);
+    }
+  }
+
+  detach(): void {
+    this.attached = false;
+    this.petVisibilityVersion++;
+    this.closeWorkspace(false);
+    this.closeCustomerDrawer();
+    this.topControlsObserver?.disconnect();
+    this.topControlsObserver = null;
+    this.topControlsResizeObserver?.disconnect();
+    this.topControlsResizeObserver = null;
+    document.removeEventListener('keydown', this.onWorkspaceShortcut);
+    chrome.storage.onChanged.removeListener(this.onSettingsChanged);
+    if (this.onWindowResize) window.removeEventListener('resize', this.onWindowResize);
+    this.onWindowResize = null;
+    this.removePetPositionListener?.();
+    this.removePetPositionListener = null;
+    this.pet.detach();
   }
 
   private scheduleTopControlsMount(): void {
@@ -148,27 +315,119 @@ export class MainNav {
     this.topControlsScheduled = true;
     window.requestAnimationFrame(() => {
       this.topControlsScheduled = false;
+      if (!this.attached) return;
       this.mountTopControls();
     });
   }
 
   private mountTopControls(): void {
-    this.mountSidebarColorControl();
-    this.mountTopologyControl();
-    this.mountSettingsControl();
+    // Fast path: this runs on every mutation burst (every keystroke while
+    // editing). When the host row and all top-bar controls are still in place
+    // there is nothing to re-discover — findTopHeader forces style+layout
+    // recalculation for every header candidate on the page.
+    const mounted = this.topControlsHost;
+    if (
+      mounted?.isConnected &&
+      this.workspaceControl?.parentElement === mounted &&
+      this.assetReviewControl?.parentElement === mounted &&
+      this.sidebarColorControl?.parentElement === mounted &&
+      this.topologyControl?.parentElement === mounted &&
+      this.settingsControl?.parentElement === mounted
+    ) {
+      this.mountEditorActions();
+      return;
+    }
+
+    const header = this.findTopHeader();
+    if (header) {
+      // One header discovery + one mount resolution per pass; the previous
+      // per-control lookups tripled the forced-layout cost.
+      const mount = this.getTopHeaderMount(header);
+      this.mountSidebarColorControl(mount);
+      this.mountTopologyControl(mount);
+      this.mountSettingsControl(mount);
+      // The workspace is the first shortcut after Wiki.js' site title.
+      this.mountAssetReviewControl(mount);
+      this.mountWorkspaceControl(mount);
+    }
     this.mountEditorActions();
+    this.fitTopControls();
   }
 
-  private mountTopologyControl(): void {
-    const header = this.findTopHeader();
-    if (!header) return;
-    const { host } = this.getTopHeaderMount(header);
+  /** Nested Wiki title columns can be narrow even on a wide viewport. */
+  private fitTopControls(): void {
+    const host = this.topControlsHost;
+    const parent = host?.parentElement;
+    if (!host || !parent) return;
+    host.classList.remove('is-compact', 'is-minimal', 'is-icon-only');
+    const fits = (): boolean => {
+      const next = host.nextElementSibling;
+      const boundary = Math.min(parent.getBoundingClientRect().right,
+        next instanceof HTMLElement && next.getBoundingClientRect().width > 0
+          ? next.getBoundingClientRect().left : Infinity);
+      return host.getBoundingClientRect().right + 5 <= boundary;
+    };
+    for (const mode of ['is-compact', 'is-minimal', 'is-icon-only']) {
+      if (fits()) break;
+      host.classList.add(mode);
+    }
+  }
 
+  private mountWorkspaceControl({ host }: TopHeaderMount): void {
+    if (!this.workspaceControl) {
+      const button = el('button', {
+        type: 'button', class: 'fwa-header-workspace', title: '開啟工作台 · Ctrl / ⌘ + Shift + K',
+        'aria-label': '開啟 Wiki 工作台', 'aria-haspopup': 'dialog',
+      }, [icon('grid', 16), el('span', { text: '工作台' })]);
+      button.addEventListener('pointerdown', stopTopControlPointerEvent);
+      button.addEventListener('mousedown', stopTopControlPointerEvent);
+      button.addEventListener('click', (event) => { event.stopPropagation(); this.openWorkspace(); });
+      this.workspaceControl = button;
+    }
+    this.placeAtStart(host, this.workspaceControl);
+  }
+
+  private mountAssetReviewControl({ host }: TopHeaderMount): void {
+    const button = this.assetReviewControl ?? document.createElement('button');
+    if (!this.assetReviewControl) {
+      button.type = 'button';
+      button.className = 'fwa-header-asset-review';
+      button.append(icon('image', 16), el('span', { class: 'fwa-header-control-label', text: '照片' }));
+      button.title = '檢閱目前文章資料夾內的照片';
+      button.setAttribute('aria-label', '檢閱目前文章資料夾內的照片');
+      button.addEventListener('pointerdown', stopTopControlPointerEvent);
+      button.addEventListener('mousedown', stopTopControlPointerEvent);
+      button.addEventListener('click', (event) => {
+        stopTopControlPointerEvent(event);
+        void this.openAssetReview();
+      });
+      this.assetReviewControl = button;
+    }
+
+    this.placeAtStart(host, button);
+  }
+
+  private async openAssetReview(): Promise<void> {
+    if (this.assetReviewOpening) return;
+    this.assetReviewOpening = true;
+    const button = this.assetReviewControl;
+    if (button) button.disabled = true;
+    try {
+      await openAssetReviewModal();
+    } catch (error) {
+      this.reportTopControlError('檢閱照片', error);
+    } finally {
+      this.assetReviewOpening = false;
+      if (button?.isConnected) button.disabled = false;
+    }
+  }
+
+  private mountTopologyControl({ host }: TopHeaderMount): void {
     const button = this.topologyControl ?? document.createElement('button');
     if (!this.topologyControl) {
       button.type = 'button';
       button.className = 'fwa-header-topology';
-      button.textContent = '拓譜';
+      button.append(icon('network', 16), el('span', { class: 'fwa-header-control-label', text: '拓譜' }));
       button.title = '頁面拓譜圖';
       button.setAttribute('aria-label', '頁面拓譜圖');
       button.addEventListener('pointerdown', stopTopControlPointerEvent);
@@ -229,10 +488,7 @@ export class MainNav {
     return candidates[0]?.element ?? null;
   }
 
-  private getTopHeaderMount(header: HTMLElement): {
-    title: HTMLElement | null;
-    host: HTMLElement;
-  } {
+  private getTopHeaderMount(header: HTMLElement): TopHeaderMount {
     // Wiki.js renders the site title inside a nested .v-toolbar__content.
     // Do not use a generic <a> fallback here: on an early SPA render that can
     // be a breadcrumb link from the light page toolbar instead of the title.
@@ -244,6 +500,7 @@ export class MainNav {
       ) ?? header;
     const mountParent = title?.parentElement ?? toolbarContent;
     const host = this.ensureTopControlsHost(mountParent, title);
+    host.classList.toggle('is-dark', isDarkHeaderBackground(window.getComputedStyle(header).backgroundColor) || header.classList.contains('theme--dark'));
     if (title) title.classList.add('fwa-header-title');
     return { title, host };
   }
@@ -257,7 +514,7 @@ export class MainNav {
     const host = this.topControlsHost ?? document.createElement('div');
     if (!this.topControlsHost) {
       host.className = 'fwa-header-controls-host';
-      host.setAttribute('aria-label', 'Freedom Wiki Assistant 上方控制項');
+      host.setAttribute('aria-label', 'Wiki 工具');
       for (const control of [this.sidebarColorControl, this.topologyControl, this.settingsControl]) {
         if (control) host.appendChild(control);
       }
@@ -267,6 +524,9 @@ export class MainNav {
     if (host.parentElement !== parent) {
       const afterTitle = title?.parentElement === parent ? title.nextSibling : null;
       parent.insertBefore(host, afterTitle);
+      this.topControlsResizeObserver?.disconnect();
+      this.topControlsResizeObserver = new ResizeObserver(() => this.fitTopControls());
+      this.topControlsResizeObserver.observe(parent);
     } else if (title?.parentElement === parent && host.previousElementSibling !== title) {
       parent.insertBefore(host, title.nextSibling);
     }
@@ -289,15 +549,12 @@ export class MainNav {
     host.insertBefore(node, host.firstElementChild);
   }
 
-  private mountSidebarColorControl(): void {
-    const header = this.findTopHeader();
-    if (!header) return;
-    const { host } = this.getTopHeaderMount(header);
-
+  private mountSidebarColorControl({ host }: TopHeaderMount): void {
     const button = this.sidebarColorControl ?? document.createElement('button');
     if (!this.sidebarColorControl) {
       button.type = 'button';
       button.className = 'fwa-header-color-swatch';
+      button.append(el('span', { class: 'fwa-header-color-chip', 'aria-hidden': 'true' }));
       button.title = '調整左側導覽列顏色';
       button.setAttribute('aria-label', '調整左側導覽列顏色');
       button.addEventListener('pointerdown', stopTopControlPointerEvent);
@@ -309,24 +566,23 @@ export class MainNav {
         });
       });
       this.sidebarColorControl = button;
+      // Painting the swatch reads chrome.storage; do it when the button is
+      // created and on settings changes (index.ts calls the refresh hook),
+      // not on every mutation-triggered mount pass.
+      void this.refreshSidebarColorControl();
     }
 
     this.placeAtStart(host, button);
-    void this.refreshSidebarColorControl();
   }
 
-  private mountSettingsControl(): void {
-    const header = this.findTopHeader();
-    if (!header) return;
-    const { title, host } = this.getTopHeaderMount(header);
-
+  private mountSettingsControl({ title, host }: TopHeaderMount): void {
     const button = this.settingsControl ?? document.createElement('button');
     if (!this.settingsControl) {
       button.type = 'button';
       button.className = 'fwa-header-settings';
-      button.textContent = '設定';
-      button.title = '開啟 Freedom Wiki Assistant 完整設定';
-      button.setAttribute('aria-label', '開啟 Freedom Wiki Assistant 完整設定');
+      button.append(icon('settings', 16));
+      button.title = '開啟 Wiki 設定';
+      button.setAttribute('aria-label', '開啟 Wiki 設定');
       button.addEventListener('pointerdown', stopTopControlPointerEvent);
       button.addEventListener('mousedown', stopTopControlPointerEvent);
       button.addEventListener('click', (event) => {
@@ -356,7 +612,9 @@ export class MainNav {
     }
   }
 
-  private async refreshSidebarColorControl(): Promise<void> {
+  /** Repaints the header swatch from saved settings. Also called from
+   * index.ts whenever the settings storage key changes. */
+  async refreshSidebarColorControl(): Promise<void> {
     const button = this.sidebarColorControl;
     if (!button?.isConnected) return;
     const settings = await getSettings();
@@ -364,6 +622,9 @@ export class MainNav {
     const secondary = resolveSidebarGradientEnd(primary, settings.sidebarGradientColor);
     button.style.setProperty('--fwa-color-start', primary);
     button.style.setProperty('--fwa-color-end', secondary);
+    const colorDescription = primary === secondary ? primary : `${primary} → ${secondary}`;
+    button.title = `調整左側導覽列顏色（${colorDescription}）`;
+    button.setAttribute('aria-label', `調整左側導覽列顏色，目前為 ${colorDescription}`);
   }
 
   private reportTopControlError(label: string, error: unknown): void {
@@ -380,22 +641,25 @@ export class MainNav {
     }
     if (this.editorActions?.isConnected) return;
 
-    const icon = document.querySelector<HTMLElement>(wikiConfig.editor.saveButtonIconSelector);
-    const saveButton = icon?.closest<HTMLButtonElement>('button') ?? null;
+    const saveIcon = document.querySelector<HTMLElement>(wikiConfig.editor.saveButtonIconSelector);
+    const saveButton = saveIcon?.closest<HTMLButtonElement>('button') ?? null;
     const host = saveButton?.parentElement ?? null;
     if (!saveButton || !host) return;
 
     const actions = document.createElement('div');
     actions.className = 'fwa-editor-actions';
-    for (const [label, title, onClick] of [
-      ['模板', '開啟文章模板', () => this.onTemplatesClick()],
-      ['AI 排版', '使用 Azure OpenAI 排版文章', () => this.onAiLayoutClick()],
+    const header = host.closest<HTMLElement>('header, .v-toolbar, [role="banner"]');
+    actions.classList.toggle('is-dark', Boolean(header && (isDarkHeaderBackground(window.getComputedStyle(header).backgroundColor) || header.classList.contains('theme--dark'))));
+    for (const [label, title, symbol, onClick] of [
+      ['模板', '開啟文章模板', 'template', () => this.onTemplatesClick()],
+      ['AI 排版', '開啟 AI 排版選項', 'sparkles', () => this.onAiLayoutClick()],
     ] as const) {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'fwa-editor-action';
-      button.textContent = label;
+      button.append(icon(symbol, 16), el('span', { text: label }));
       button.title = title;
+      button.setAttribute('aria-label', title);
       button.addEventListener('click', onClick);
       actions.appendChild(button);
     }
@@ -583,12 +847,121 @@ export class MainNav {
   setTemplatePanel(panel: TemplatePanel | null): void {
     this.templatePanel = panel;
     this.mountEditorActions();
+    this.renderWorkspaceActions();
   }
 
   /** Registered by index.ts whenever an editor mounts/unmounts; null while browsing (no editor on the page). */
   setAiLayout(feature: AiLayoutFeature | null): void {
     this.aiLayout = feature;
     this.mountEditorActions();
+    this.renderWorkspaceActions();
+  }
+
+  private workspaceActions(): WorkspaceAction[] {
+    return [
+      { name: '客戶目錄', description: '客戶、分支與收藏頁面', keywords: 'customers directory folders bookmarks 書籤 資料夾', group: '瀏覽與整理', symbol: 'folder', available: true, run: () => this.onCustomersClick() },
+      { name: '圖片資料庫', description: '檢閱這篇文章的照片與圖片', keywords: 'images assets gallery photos 檢閱照片 圖片', group: '瀏覽與整理', symbol: 'image', available: true, run: () => { void this.openAssetReview(); } },
+      { name: '頁面拓譜', description: '檢視文章的連結關係', keywords: 'network topology graph 拓譜圖', group: '瀏覽與整理', symbol: 'network', available: true, run: () => { try { openCurrentPageTopology(); } catch (error) { this.reportTopControlError('頁面拓譜圖', error); } } },
+      { name: '文章模板', description: this.templatePanel ? '選擇模板並插入文章' : '進入文章編輯頁後即可使用', keywords: 'templates 編輯 範本', group: '文章編輯', symbol: 'template', available: this.templatePanel !== null, run: () => this.onTemplatesClick() },
+      { name: 'AI 排版', description: this.aiLayout ? '整理文章結構，先檢閱再套用' : '進入文章編輯頁後即可使用', keywords: 'ai layout format 人工智慧 格式', group: '文章編輯', symbol: 'sparkles', available: this.aiLayout !== null, run: () => this.onAiLayoutClick() },
+      { name: '側欄外觀', description: '調整 Wiki 導覽列的顏色', keywords: 'sidebar appearance color palette 顏色', group: '偏好設定', symbol: 'palette', available: true, run: () => { void this.openSidebarColorModal().catch((error: unknown) => this.reportTopControlError('側欄外觀', error)); } },
+      { name: this.petVisible ? '隱藏 Pet' : '顯示 Pet', description: this.petVisible ? '隱藏浮動寵物，保留工作台入口' : '顯示浮動寵物，點擊開啟客戶目錄', keywords: 'pet mascot 寵物 顯示 隱藏 客戶', group: '偏好設定', symbol: 'grid', available: true, run: () => { void this.togglePetVisibility(); } },
+      { name: '設定', description: '管理 AI 服務、編輯偏好與資料', keywords: 'settings preferences provider', group: '偏好設定', symbol: 'settings', available: true, run: () => { void this.openSettingsPage(); } },
+    ];
+  }
+
+  private openWorkspace(): void {
+    // An existing form or review owns the keyboard until it closes.
+    if (Array.from(document.querySelectorAll('[id^="fwa-"]')).some((host) => host.shadowRoot?.querySelector('.fwa-modal'))) return;
+    if (this.workspaceHost) {
+      this.workspaceSearch?.focus();
+      this.workspaceSearch?.select();
+      return;
+    }
+    this.closeCustomerDrawer();
+    this.templatePanel?.close();
+    const active = document.activeElement;
+    this.workspaceReturnFocus = (active?.shadowRoot?.activeElement ?? active) instanceof HTMLElement
+      ? (active?.shadowRoot?.activeElement ?? active) as HTMLElement : null;
+    const { host, root } = createShadowHost('fwa-workspace-host');
+    this.workspaceHost = host;
+    const close = el('button', { type: 'button', class: 'fwa-workspace-close', title: '關閉工作台 · Esc', 'aria-label': '關閉工作台' }, [icon('close', 18)]);
+    close.addEventListener('click', () => this.closeWorkspace());
+    this.workspaceSearch = el('input', { type: 'search', placeholder: '搜尋工具與功能…', 'aria-label': '搜尋工作台工具', autocomplete: 'off', 'aria-controls': 'fwa-workspace-results' });
+    this.workspaceSearch.addEventListener('input', () => this.renderWorkspaceActions());
+    this.workspaceResults = el('div', { class: 'fwa-workspace-results', id: 'fwa-workspace-results' });
+    const panel = el('section', { class: 'fwa-workspace', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'fwa-workspace-title' }, [
+      el('header', { class: 'fwa-workspace-header' }, [
+        el('h2', { id: 'fwa-workspace-title', text: '工作台' }), close,
+      ]),
+      el('div', { class: 'fwa-workspace-search' }, [icon('search', 20), this.workspaceSearch, el('kbd', { text: 'ESC' })]),
+      this.workspaceResults,
+      el('footer', { class: 'fwa-workspace-footer' }, [el('span', { text: '↑ ↓ 選擇 · Enter 開啟' }), el('span', { text: 'Ctrl / ⌘ + Shift + K' })]),
+    ]);
+    const backdrop = el('div', { class: 'fwa-workspace-backdrop' }, [panel]);
+    backdrop.addEventListener('pointerdown', (event) => { if (event.target === backdrop) this.closeWorkspace(); });
+    panel.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault(); event.stopPropagation(); this.closeWorkspace(); return;
+      }
+      const buttons = Array.from(panel.querySelectorAll<HTMLButtonElement>('.fwa-workspace-action:not(:disabled)'));
+      const focused = root.activeElement;
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        const index = buttons.findIndex((button) => button === focused);
+        const next = event.key === 'ArrowDown' ? (index + 1) % buttons.length : (index <= 0 ? buttons.length - 1 : index - 1);
+        buttons[next]?.focus();
+      } else if (event.key === 'Enter' && focused === this.workspaceSearch) {
+        event.preventDefault(); buttons[0]?.click();
+      } else if (event.key === 'Tab') {
+        const focusables = Array.from(panel.querySelectorAll<HTMLElement>('button:not(:disabled), input'));
+        const first = focusables[0]; const last = focusables.at(-1);
+        if (event.shiftKey && focused === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && focused === last) { event.preventDefault(); first?.focus(); }
+      }
+    });
+    root.appendChild(backdrop);
+    this.workspaceControl?.setAttribute('aria-expanded', 'true');
+    this.renderWorkspaceActions();
+    this.workspaceSearch.focus();
+  }
+
+  private closeWorkspace(restoreFocus = true): void {
+    this.workspaceHost?.remove();
+    this.workspaceHost = null;
+    this.workspaceSearch = null;
+    this.workspaceResults = null;
+    this.workspaceControl?.setAttribute('aria-expanded', 'false');
+    if (restoreFocus && this.workspaceReturnFocus?.isConnected) this.workspaceReturnFocus.focus();
+    this.workspaceReturnFocus = null;
+  }
+
+  private renderWorkspaceActions(): void {
+    const results = this.workspaceResults;
+    if (!results) return;
+    const query = this.workspaceSearch?.value ?? '';
+    const actions = this.workspaceActions().filter((action) => matchesWorkspaceQuery(query, action.name, action.description, action.keywords, action.group));
+    results.replaceChildren();
+    if (!actions.length) {
+      results.append(el('div', { class: 'fwa-workspace-empty', role: 'status' }, [icon('search', 24), el('strong', { text: '沒有符合的工具' }), el('span', { text: '試試「照片」、「模板」或「設定」。' })]));
+      return;
+    }
+    for (const group of ['瀏覽與整理', '文章編輯', '偏好設定'] as const) {
+      const items = actions.filter((action) => action.group === group);
+      if (!items.length) continue;
+      const section = el('section', { class: 'fwa-workspace-group', 'aria-label': group }, [el('h3', { text: group })]);
+      for (const action of items) {
+        const button = el('button', { type: 'button', class: 'fwa-workspace-action' }, [
+          el('span', { class: 'fwa-workspace-action-icon' }, [icon(action.symbol, 20)]),
+          el('span', { class: 'fwa-workspace-action-copy' }, [el('strong', { text: action.name }), el('span', { text: action.description })]),
+          action.available ? icon('arrowRight', 16) : el('span', { class: 'fwa-workspace-unavailable', text: '編輯時可用' }),
+        ]);
+        button.disabled = !action.available;
+        button.addEventListener('click', () => { this.closeWorkspace(); action.run(); });
+        section.appendChild(button);
+      }
+      results.appendChild(section);
+    }
   }
 
   private async restoreExpandedState(): Promise<void> {
@@ -617,10 +990,31 @@ export class MainNav {
     }
     this.closeCustomerDrawer();
     this.templatePanel?.close();
-    void this.aiLayout.openAi();
+    const modal = openModal('AI 排版');
+    modal.body.append(
+      el('div', { class: 'fwa-ai-launch-intro' }, [
+        el('span', { class: 'fwa-workspace-action-icon' }, [icon('sparkles', 24)]),
+        el('h3', { text: '讓文章的結構更清楚' }),
+        el('p', { text: '依照你的排版規則，整理目前文章或選取的內容。完成後會先顯示差異，讓你決定要套用的版本。' }),
+      ]),
+      el('div', { class: 'fwa-hint', text: '開始後，內容會交由設定中的 AI 服務處理。你可以在設定中調整服務與排版規則。' }),
+    );
+    const cancel = el('button', { type: 'button', class: 'fwa-btn', text: '稍後再說' });
+    cancel.addEventListener('click', () => modal.close());
+    const start = el('button', { type: 'button', class: 'fwa-btn fwa-btn-primary', text: '開始 AI 排版' });
+    start.prepend(icon('sparkles', 16));
+    start.addEventListener('click', () => {
+      const feature = this.aiLayout;
+      modal.close();
+      if (feature) void feature.openAi();
+      else showToast('編輯器已關閉，請重新進入文章編輯頁。', 'info');
+    });
+    modal.footer.append(cancel, start);
   }
 
   private onCustomersClick(): void {
+    if (Array.from(document.querySelectorAll('[id^="fwa-"]')).some((host) => host.shadowRoot?.querySelector('.fwa-modal'))) return;
+    this.closeWorkspace(false);
     this.templatePanel?.close();
     if (this.customerPanel) this.closeCustomerDrawer();
     else this.openCustomerDrawer();
@@ -628,92 +1022,159 @@ export class MainNav {
 
   private closeCustomerDrawer(): void {
     if (!this.customerPanel) return;
+    const hadFocus = Boolean(this.customerPanelHost?.shadowRoot?.activeElement);
+    this.closeDirectoryMenu(false);
     document.removeEventListener('pointerdown', this.dismissCustomerPanelOnPointerDown);
     document.removeEventListener('keydown', this.dismissCustomerPanelOnEscape);
-    this.stopFollowingPet?.();
-    this.stopFollowingPet = null;
     this.customerPanelHost?.remove();
     this.customerPanel = null;
     this.customerPanelHost = null;
     this.customerListEl = null;
-    void this.persistExpanded(false);
+    this.customerCountEl = null;
+    this.customerRenderVersion += 1;
+    this.pet.setExpanded(false);
+    if (hadFocus && this.customerReturnFocus?.isConnected) this.customerReturnFocus.focus({ preventScroll: true });
+    this.customerReturnFocus = null;
   }
 
   private openCustomerDrawer(): void {
     if (this.customerPanel) return;
+    const active = document.activeElement;
+    const original = active?.shadowRoot?.activeElement ?? active;
+    this.customerReturnFocus = original instanceof HTMLElement ? original : null;
     const { host, root } = createShadowHost('fwa-customer-panel-host');
+    this.customerSearch = '';
+    const close = el('button', { type: 'button', class: 'fwa-workspace-close', 'aria-label': '關閉客戶目錄', title: '關閉客戶目錄 · Esc' }, [icon('close', 18)]);
+    close.addEventListener('click', () => this.closeCustomerDrawer());
     const addBtn = el('button', {
-      class: 'fwa-btn fwa-btn-primary fwa-customer-add-primary',
-      text: '＋ 新增客戶',
-    });
-    addBtn.addEventListener('click', () => void this.openAddCustomerModal());
-    const addCurrentPageBtn = el('button', {
-      class: 'fwa-btn fwa-customer-secondary fwa-customer-current-page',
-      title: '將目前正在瀏覽的 Wiki 頁面加入客戶目錄',
-      text: '＋ 新增這個介面',
-    });
-    addCurrentPageBtn.addEventListener('click', () => this.openAddCurrentInterfaceModal());
-    const addFolderBtn = el('button', {
-      class: 'fwa-btn fwa-customer-secondary fwa-customer-folder-add',
-      title: '建立資料夾來分類客戶',
-      text: '＋ 新增資料夾',
-    });
-    addFolderBtn.addEventListener('click', () => this.openAddFolderModal());
-    const importBtn = el('button', {
-      class: 'fwa-btn fwa-customer-secondary',
-      title: '從 JSON 匯入客戶',
-      text: '匯入',
-    });
-    importBtn.addEventListener('click', () => this.importCustomers());
-    const exportBtn = el('button', {
-      class: 'fwa-btn fwa-customer-secondary',
-      title: '將客戶匯出為 JSON',
-      text: '匯出',
-    });
-    exportBtn.addEventListener('click', () => void this.exportCustomers());
-    const header = el('div', { class: 'fwa-customer-toolbar' }, [
-      el('div', { class: 'fwa-customer-toolbar-main' }, [addBtn, addCurrentPageBtn]),
-      el('div', { class: 'fwa-customer-toolbar-utilities' }, [addFolderBtn, importBtn, exportBtn]),
+      type: 'button', class: 'fwa-directory-control fwa-customer-add-primary',
+      title: '新增客戶', 'aria-label': '新增客戶',
+    }, [icon('plus', 20)]);
+    addBtn.addEventListener('click', () => { this.closeDirectoryMenu(false); void this.openAddCustomerModal(); });
+    const more = this.createDirectoryMenuButton('更多客戶目錄操作', [
+      { label: '收藏目前頁面', symbol: 'book', run: () => this.openAddCurrentInterfaceModal() },
+      { label: '新增資料夾', symbol: 'folder', run: () => this.openAddFolderModal() },
+      { label: '匯入客戶', symbol: 'upload', run: () => this.importCustomers() },
+      { label: '匯出客戶', symbol: 'download', run: () => { void this.exportCustomers(); } },
     ]);
-
+    const heading = el('header', { class: 'fwa-directory-header' }, [
+      el('h2', { id: 'fwa-directory-title', text: '客戶目錄' }),
+      el('div', { class: 'fwa-directory-header-actions' }, [addBtn, more, close]),
+    ]);
+    const search = el('input', { type: 'search', 'aria-label': '搜尋客戶名稱、頁面路徑與分支', placeholder: '搜尋客戶或頁面路徑…', autocomplete: 'off' });
+    search.addEventListener('input', () => { this.customerSearch = search.value; void this.renderCustomerList(); });
+    const searchRow = el('div', { class: 'fwa-directory-search' }, [icon('search', 18), search]);
     this.customerListEl = el('div', { class: 'fwa-panel-list fwa-customer-list' });
-    this.customerPanel = el('div', { class: 'fwa-panel fwa-customer-panel' }, [
-      header,
+    this.customerCountEl = el('span', { class: 'fwa-customer-count', role: 'status', 'aria-live': 'polite' });
+    this.customerPanel = el('section', { class: 'fwa-panel fwa-customer-panel', role: 'dialog', 'aria-modal': 'false', 'aria-labelledby': 'fwa-directory-title' }, [
+      el('div', { class: 'fwa-directory-topbar' }, [heading, searchRow]),
       this.customerListEl,
+      el('footer', { class: 'fwa-customer-summary' }, [this.customerCountEl, el('span', { class: 'fwa-customer-drag-hint', text: '拖曳排序' })]),
     ]);
     this.customerPanelHost = host;
     root.appendChild(this.customerPanel);
-    this.positionCustomerDrawer();
-    this.stopFollowingPet = this.pet.onPositionChange(() => this.positionCustomerDrawer());
-    window.requestAnimationFrame(() => this.positionCustomerDrawer());
+    this.customerPanel.addEventListener('keydown', (event) => {
+      if (event.key !== 'Tab' || event.defaultPrevented) return;
+      const focusables = Array.from(this.customerPanel?.querySelectorAll<HTMLElement>('button:not(:disabled), input, a[href], select') ?? [])
+        .filter((element) => !element.closest('[hidden]'));
+      const first = focusables[0];
+      const last = focusables.at(-1);
+      if (event.shiftKey && root.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && root.activeElement === last) { event.preventDefault(); first?.focus(); }
+    });
+    this.pet.setExpanded(true);
+    this.updateCustomerDrawerInset();
     document.addEventListener('pointerdown', this.dismissCustomerPanelOnPointerDown);
     document.addEventListener('keydown', this.dismissCustomerPanelOnEscape);
     void this.renderCustomerList();
-    // The customer list is now a transient Pet popover, so it must never reopen after navigation.
-    void this.persistExpanded(false);
+    search.focus();
+    // This transient popover has no settings to save when it opens or closes.
   }
 
-  private positionCustomerDrawer(): void {
-    const panel = this.customerPanel;
-    const petBounds = this.pet.getBounds();
-    if (!panel?.isConnected || !petBounds) return;
+  private createDirectoryMenuButton(label: string, actions: DirectoryMenuAction[]): HTMLButtonElement {
+    const button = el('button', {
+      type: 'button', class: 'fwa-directory-control fwa-directory-more',
+      title: label, 'aria-label': label, 'aria-haspopup': 'menu', 'aria-expanded': 'false',
+    }, [icon('more', 19)]);
+    button.addEventListener('click', () => {
+      if (this.directoryMenu?.trigger === button) this.closeDirectoryMenu();
+      else this.openDirectoryMenu(button, actions);
+    });
+    button.addEventListener('keydown', (event) => {
+      if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+      event.preventDefault();
+      event.stopPropagation();
+      this.openDirectoryMenu(button, actions, event.key === 'ArrowUp');
+    });
+    return button;
+  }
 
-    const margin = 12;
-    const panelWidth = panel.offsetWidth;
-    const panelHeight = panel.offsetHeight;
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
-    const roomOnLeft = petBounds.left - margin;
-    const roomOnRight = viewportWidth - petBounds.right - margin;
-    let left = roomOnLeft >= panelWidth || roomOnLeft >= roomOnRight
-      ? petBounds.left - panelWidth - margin
-      : petBounds.right + margin;
-    left = Math.min(Math.max(margin, left), Math.max(margin, viewportWidth - panelWidth - margin));
+  private openDirectoryMenu(trigger: HTMLButtonElement, actions: DirectoryMenuAction[], focusLast = false): void {
+    if (!this.customerPanel) return;
+    this.closeDirectoryMenu(false);
+    const menu = el('div', { class: 'fwa-directory-menu', role: 'menu', 'aria-label': trigger.getAttribute('aria-label') ?? '更多操作' });
+    for (const action of actions) {
+      const item = el('button', {
+        type: 'button', class: `fwa-directory-menu-item${action.destructive ? ' is-destructive' : ''}`,
+        role: 'menuitem', tabindex: '-1',
+      }, [el('span', { text: action.label }), ...(action.symbol ? [icon(action.symbol, 17)] : [])]);
+      item.disabled = Boolean(action.disabled);
+      item.addEventListener('click', () => {
+        // Restore the persistent trigger before a nested modal captures its opener.
+        this.closeDirectoryMenu();
+        action.run();
+      });
+      menu.appendChild(item);
+    }
+    this.directoryMenu = { element: menu, trigger };
+    trigger.setAttribute('aria-expanded', 'true');
+    this.customerPanel.appendChild(menu);
+    const panelRect = this.customerPanel.getBoundingClientRect();
+    const triggerRect = trigger.getBoundingClientRect();
+    const menuRect = menu.getBoundingClientRect();
+    const width = menuRect.width || 220;
+    const height = menuRect.height || actions.length * 42 + 12;
+    const panelWidth = panelRect.width || Number.parseFloat(this.customerPanel.style.width) || 436;
+    const panelHeight = panelRect.height || Number.parseFloat(this.customerPanel.style.height) || 550;
+    const below = triggerRect.bottom - panelRect.top + 6;
+    const top = below + height <= panelHeight - 10 ? below : triggerRect.top - panelRect.top - height - 6;
+    menu.style.left = `${Math.max(10, Math.min(triggerRect.right - panelRect.left - width, panelWidth - width - 10))}px`;
+    menu.style.top = `${Math.max(10, Math.min(top, panelHeight - height - 10))}px`;
+    menu.style.maxHeight = `${Math.max(44, panelHeight - 20)}px`;
+    const items = Array.from(menu.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
+    menu.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault(); event.stopPropagation(); this.closeDirectoryMenu();
+      } else if (event.key === 'Tab') {
+        // Continue normal tab navigation from the stable trigger after dismissal.
+        event.stopPropagation(); this.closeDirectoryMenu();
+      } else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+        event.preventDefault(); event.stopPropagation();
+        const index = items.indexOf(menu.getRootNode() instanceof ShadowRoot ? (menu.getRootNode() as ShadowRoot).activeElement as HTMLButtonElement : document.activeElement as HTMLButtonElement);
+        const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+        items[next]?.focus();
+      }
+    });
+    (focusLast ? items.at(-1) : items[0])?.focus();
+  }
 
-    let top = petBounds.bottom - panelHeight;
-    top = Math.min(Math.max(margin, top), Math.max(margin, viewportHeight - panelHeight - margin));
-    panel.style.left = `${Math.round(left)}px`;
-    panel.style.top = `${Math.round(top)}px`;
+  private closeDirectoryMenu(restoreFocus = true): void {
+    const menu = this.directoryMenu;
+    if (!menu) return;
+    this.directoryMenu = null;
+    menu.element.remove();
+    menu.trigger.setAttribute('aria-expanded', 'false');
+    if (restoreFocus && menu.trigger.isConnected) menu.trigger.focus({ preventScroll: true });
+  }
+
+  private updateCustomerDrawerInset(): void {
+    if (!this.customerPanel?.isConnected) return;
+    const headerBottom = this.findTopHeader()?.getBoundingClientRect().bottom ?? 64;
+    const position = customerPanelPosition(this.pet.getBounds(), { width: window.innerWidth, height: window.innerHeight }, headerBottom);
+    Object.assign(this.customerPanel.style, {
+      left: `${position.left}px`, top: `${position.top}px`, right: 'auto', bottom: 'auto',
+      width: `${position.width}px`, height: `${position.height}px`, maxHeight: `${position.height}px`,
+    });
   }
 
   private async exportCustomers(): Promise<void> {
@@ -757,14 +1218,25 @@ export class MainNav {
 
   private async renderCustomerList(): Promise<void> {
     if (!this.customerListEl) return;
+    const version = ++this.customerRenderVersion;
     const [customers, branchMap, folders] = await Promise.all([
       listCustomers(),
       listAllBranches(),
       listCustomerFolders(),
     ]);
-    if (!this.customerListEl) return; // drawer closed while we were reading storage
+    if (!this.customerListEl || version !== this.customerRenderVersion) return;
+    if (this.directoryMenu && this.customerListEl.contains(this.directoryMenu.trigger)) this.closeDirectoryMenu(false);
     this.customerListEl.replaceChildren();
-    window.requestAnimationFrame(() => this.positionCustomerDrawer());
+    const query = this.customerSearch.trim();
+    const visibleCustomers = customers.filter((customer) => {
+      const branches = branchMap[customerBranchKey(customer.name)] ?? [];
+      return matchesWorkspaceQuery(query, customer.name, customer.pagePath, ...branches.flatMap((branch) => [branch.name, branch.target]));
+    });
+    if (this.customerCountEl) this.customerCountEl.textContent = query ? `${visibleCustomers.length} / ${customers.length} 位客戶` : `${customers.length} 位客戶 · ${folders.length} 個資料夾`;
+    if (query && !visibleCustomers.length) {
+      this.customerListEl.append(el('div', { class: 'fwa-customer-empty' }, [icon('search', 28), el('div', { class: 'fwa-customer-empty-title', text: '找不到符合的客戶' }), el('div', { class: 'fwa-customer-empty-description', text: '換個名稱、頁面路徑或常用頁面名稱試試。' })]));
+      return;
+    }
     if (customers.length === 0 && folders.length === 0) {
       const add = el('button', { class: 'fwa-btn fwa-btn-primary', text: '新增第一位客戶' });
       add.addEventListener('click', () => void this.openAddCustomerModal());
@@ -782,13 +1254,13 @@ export class MainNav {
       return;
     }
     const folderIds = new Set(folders.map((folder) => folder.id));
-    const unfiledCustomers = customers.filter(
+    const unfiledCustomers = visibleCustomers.filter(
       (customer) => !customer.folderId || !folderIds.has(customer.folderId),
     );
-    this.customerListEl.appendChild(this.renderCustomerFolder(null, unfiledCustomers, branchMap));
+    if (!query || unfiledCustomers.length) this.customerListEl.appendChild(this.renderCustomerFolder(null, unfiledCustomers, branchMap));
     for (const folder of folders) {
-      const folderCustomers = customers.filter((customer) => customer.folderId === folder.id);
-      this.customerListEl.appendChild(this.renderCustomerFolder(folder, folderCustomers, branchMap));
+      const folderCustomers = visibleCustomers.filter((customer) => customer.folderId === folder.id);
+      if (!query || folderCustomers.length) this.customerListEl.appendChild(this.renderCustomerFolder(folder, folderCustomers, branchMap));
     }
   }
 
@@ -804,7 +1276,7 @@ export class MainNav {
     });
     const title = folder?.name ?? '未分類';
     const header = el('div', { class: 'fwa-customer-folder-header' }, [
-      el('span', { class: 'fwa-customer-folder-icon', 'aria-hidden': 'true', text: '▰' }),
+      el('span', { class: 'fwa-customer-folder-icon', 'aria-hidden': 'true' }, [icon('folder', 15)]),
       el('span', { class: 'fwa-customer-folder-name', text: title }),
       el('span', {
         class: 'fwa-customer-folder-count',
@@ -856,7 +1328,7 @@ export class MainNav {
     folderId: string | null,
   ): HTMLElement {
     const key = customerBranchKey(customer.name);
-    const expanded = this.expandedCustomers.has(key);
+    const expanded = Boolean(this.customerSearch.trim()) || this.expandedCustomers.has(key);
 
     const dragHandle = el('button', {
       class: 'fwa-customer-drag-handle',
@@ -891,42 +1363,23 @@ export class MainNav {
       title: '展開／收合分支',
       'aria-expanded': String(expanded),
       'aria-label': `展開或收合 ${customer.name} 的分支`,
-      text: expanded ? '▾' : '▸',
     });
+    toggle.append(icon(expanded ? 'chevronDown' : 'chevronRight', 16));
     const link = el('button', {
       class: 'fwa-customer-link',
       title: customer.pagePath,
       text: customer.name,
     });
     link.addEventListener('click', () => this.goToCustomer(customer));
-    const edit = el('button', {
-      class: 'fwa-icon-btn fwa-customer-edit',
-      type: 'button',
-      title: `編輯 ${customer.name}`,
-      'aria-label': `編輯 ${customer.name}`,
-      text: '✎',
-    });
-    edit.addEventListener('click', () => void this.openEditCustomerModal(customer));
     const meta = el('span', {
       class: 'fwa-customer-meta',
-      text: branches.length > 0 ? `${branches.length} 個常用頁面` : '尚無常用頁面',
+      text: customer.pagePath,
     });
-    const add = el('button', {
-      class: 'fwa-icon-btn fwa-branch-add',
-      type: 'button',
-      title: `新增 ${customer.name} 的分支`,
-      'aria-label': `新增 ${customer.name} 的分支`,
-      text: '＋',
-    });
-    add.addEventListener('click', () => this.openBranchModal(customer, null));
-    const del = el('button', {
-      class: 'fwa-icon-btn fwa-customer-delete',
-      type: 'button',
-      title: `刪除 ${customer.name}`,
-      'aria-label': `刪除 ${customer.name}`,
-      text: '刪',
-    });
-    del.addEventListener('click', () => this.confirmDeleteCustomer(customer));
+    const more = this.createDirectoryMenuButton(`${customer.name} 的更多操作`, [
+      { label: '編輯客戶', symbol: 'edit', run: () => { void this.openEditCustomerModal(customer); } },
+      { label: '新增分支', symbol: 'plus', run: () => this.openBranchModal(customer, null) },
+      { label: '刪除客戶', symbol: 'trash', destructive: true, run: () => this.confirmDeleteCustomer(customer) },
+    ]);
 
     const branchList = this.renderBranchList(customer, branches);
     branchList.hidden = !expanded;
@@ -935,10 +1388,10 @@ export class MainNav {
       'data-customer-id': customer.id,
     });
     toggle.addEventListener('click', () => {
-      const nowExpanded = !this.expandedCustomers.has(key);
+      const nowExpanded = branchList.hidden;
       if (nowExpanded) this.expandedCustomers.add(key);
       else this.expandedCustomers.delete(key);
-      toggle.textContent = nowExpanded ? '▾' : '▸';
+      toggle.replaceChildren(icon(nowExpanded ? 'chevronDown' : 'chevronRight', 16));
       toggle.setAttribute('aria-expanded', String(nowExpanded));
       branchList.hidden = !nowExpanded;
       group.classList.toggle('is-expanded', nowExpanded);
@@ -948,10 +1401,10 @@ export class MainNav {
       el('div', { class: 'fwa-customer-item' }, [
         dragHandle,
         el('div', { class: 'fwa-customer-details' }, [
-          el('div', { class: 'fwa-customer-name-row' }, [link, edit]),
+          el('div', { class: 'fwa-customer-name-row' }, [link]),
           meta,
         ]),
-        el('div', { class: 'fwa-customer-actions' }, [add, del]),
+        el('div', { class: 'fwa-customer-actions' }, [more]),
         toggle,
       ]),
       branchList,
@@ -989,7 +1442,7 @@ export class MainNav {
     const list = el('div', { class: 'fwa-branch-list' });
     if (branches.length === 0) {
       list.appendChild(
-        el('div', { class: 'fwa-branch-empty', text: '尚未新增分支，可按上方「＋」新增' }),
+        el('div', { class: 'fwa-branch-empty', text: '還沒有分支，可從客戶的「更多操作」新增。' }),
       );
       return list;
     }
@@ -1002,36 +1455,22 @@ export class MainNav {
       });
       link.addEventListener('click', () => this.goToBranch(branch));
 
-      const up = this.branchActionBtn('↑', '上移', () => void this.moveAndRefresh(customer, branch, -1));
-      const down = this.branchActionBtn('↓', '下移', () => void this.moveAndRefresh(customer, branch, 1));
-      up.disabled = index === 0;
-      down.disabled = isLast;
-      const edit = this.branchActionBtn('✎', '編輯分支', () => this.openBranchModal(customer, branch));
-      const remove = this.branchActionBtn('✕', '刪除分支', () =>
-        this.confirmDeleteBranch(customer, branch),
-      );
+      const more = this.createDirectoryMenuButton(`${branch.name} 的分支操作`, [
+        { label: '編輯分支', symbol: 'edit', run: () => this.openBranchModal(customer, branch) },
+        { label: '上移', disabled: index === 0, run: () => { void this.moveAndRefresh(customer, branch, -1); } },
+        { label: '下移', disabled: isLast, run: () => { void this.moveAndRefresh(customer, branch, 1); } },
+        { label: '刪除分支', symbol: 'trash', destructive: true, run: () => this.confirmDeleteBranch(customer, branch) },
+      ]);
 
       list.appendChild(
         el('div', { class: 'fwa-branch-item' }, [
           el('span', { class: 'fwa-branch-tee', 'aria-hidden': 'true', text: isLast ? '└' : '├' }),
           link,
-          el('span', { class: 'fwa-branch-actions' }, [up, down, edit, remove]),
+          el('span', { class: 'fwa-branch-actions' }, [more]),
         ]),
       );
     });
     return list;
-  }
-
-  private branchActionBtn(label: string, title: string, onClick: () => void): HTMLButtonElement {
-    const btn = el('button', {
-      class: 'fwa-icon-btn',
-      type: 'button',
-      title,
-      'aria-label': title,
-      text: label,
-    });
-    btn.addEventListener('click', onClick);
-    return btn;
   }
 
   private async moveAndRefresh(
@@ -1114,8 +1553,9 @@ export class MainNav {
     this.customerPanelHost?.remove();
     this.customerPanelHost = null;
     this.customerListEl = null;
-    this.stopFollowingPet?.();
-    this.stopFollowingPet = null;
+    this.customerCountEl = null;
+    this.customerRenderVersion += 1;
+    this.pet.setExpanded(false);
     document.removeEventListener('pointerdown', this.dismissCustomerPanelOnPointerDown);
     document.removeEventListener('keydown', this.dismissCustomerPanelOnEscape);
     void this.persistExpanded(false).finally(() => window.location.assign(url));

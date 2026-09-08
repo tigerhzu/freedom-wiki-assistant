@@ -1,6 +1,15 @@
 import { wikiConfig } from '../config/wiki-config';
 import type { EditorKind, SelectionInfo } from '../shared/types';
+import type { EditorMutationContext, UpdateOrigin } from './wiki-document-model';
 import { bridgeCall, ensureBridge } from './bridge';
+
+export interface EditorChangeEvent {
+  origin: UpdateOrigin | 'native';
+  transactionId?: string;
+  value: string;
+}
+
+export type EditorChangeListener = (event?: EditorChangeEvent) => void;
 
 /**
  * Unified editor abstraction. Every other feature (formatting menu, image
@@ -12,21 +21,21 @@ export interface EditorAdapter {
   /** Element to attach contextmenu / drop / paste listeners to. */
   readonly rootElement: HTMLElement;
   getValue(): string;
-  setValue(value: string): void;
+  setValue(value: string, context?: EditorMutationContext): void | Promise<void>;
   getSelection(): SelectionInfo;
   /** Extension to the spec interface: required to restore the caret after edits. */
   setSelection(start: number, end: number): void;
   /** Replace a source range without focusing or moving the native editor caret. */
-  replaceRange(start: number, end: number, value: string): void;
-  replaceSelection(value: string): void;
-  insertAtCursor(value: string): void;
+  replaceRange(start: number, end: number, value: string, context?: EditorMutationContext): void | Promise<void>;
+  replaceSelection(value: string, context?: EditorMutationContext): void | Promise<void>;
+  insertAtCursor(value: string, context?: EditorMutationContext): void | Promise<void>;
   /** Undo/redo the editor's own history without requiring its UI to be focused. */
   undo(): boolean;
   redo(): boolean;
   focus(): void;
-  notifyChange(): void;
+  notifyChange(context?: EditorMutationContext): void;
   /** Subscribe to changes made through the native editor UI. */
-  subscribe(listener: () => void): () => void;
+  subscribe(listener: EditorChangeListener): () => void;
 }
 
 /* ────────────────────────────── textarea ────────────────────────────── */
@@ -43,13 +52,13 @@ export class TextareaAdapter implements EditorAdapter {
     return this.el.value;
   }
 
-  setValue(value: string): void {
+  setValue(value: string, context?: EditorMutationContext): void {
     // Use the native prototype setter so frameworks (React/Vue) that patch
     // the value property still see the change through the input event.
     const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
     if (setter) setter.call(this.el, value);
     else this.el.value = value;
-    this.notifyChange();
+    this.notifyChange(context);
   }
 
   getSelection(): SelectionInfo {
@@ -61,21 +70,21 @@ export class TextareaAdapter implements EditorAdapter {
     this.el.setSelectionRange(start, end);
   }
 
-  replaceRange(start: number, end: number, value: string): void {
+  replaceRange(start: number, end: number, value: string, context?: EditorMutationContext): void {
     // Visual edits are written to the native Markdown editor in the
     // background. Preserve its selection so CodeMirror does not scroll to the
     // changed source line while the user is typing in the rendered document.
     this.el.setRangeText(value, start, end, 'preserve');
-    this.notifyChange();
+    this.notifyChange(context);
   }
 
-  replaceSelection(value: string): void {
+  replaceSelection(value: string, context?: EditorMutationContext): void {
     this.el.setRangeText(value, this.el.selectionStart, this.el.selectionEnd, 'end');
-    this.notifyChange();
+    this.notifyChange(context);
   }
 
-  insertAtCursor(value: string): void {
-    this.replaceSelection(value);
+  insertAtCursor(value: string, context?: EditorMutationContext): void {
+    this.replaceSelection(value, context);
   }
 
   undo(): boolean {
@@ -92,17 +101,33 @@ export class TextareaAdapter implements EditorAdapter {
     this.el.focus();
   }
 
-  notifyChange(): void {
+  notifyChange(context?: EditorMutationContext): void {
+    const change: EditorChangeEvent = {
+      origin: context?.origin ?? 'system',
+      transactionId: context?.transactionId,
+      value: this.getValue(),
+    };
+    this.el.dispatchEvent(new CustomEvent<EditorChangeEvent>('fwa:editor-change', {
+      bubbles: true,
+      detail: change,
+    }));
     this.el.dispatchEvent(new InputEvent('input', { bubbles: true }));
     this.el.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
-  subscribe(listener: () => void): () => void {
-    this.el.addEventListener('input', listener);
-    this.el.addEventListener('change', listener);
+  subscribe(listener: EditorChangeListener): () => void {
+    const onBridgeChange = (event: Event): void => {
+      const detail = (event as CustomEvent<EditorChangeEvent>).detail;
+      listener(detail ?? { origin: 'native', value: this.getValue() });
+    };
+    const onNativeChange = (): void => listener({ origin: 'native', value: this.getValue() });
+    this.el.addEventListener('fwa:editor-change', onBridgeChange);
+    this.el.addEventListener('input', onNativeChange);
+    this.el.addEventListener('change', onNativeChange);
     return () => {
-      this.el.removeEventListener('input', listener);
-      this.el.removeEventListener('change', listener);
+      this.el.removeEventListener('fwa:editor-change', onBridgeChange);
+      this.el.removeEventListener('input', onNativeChange);
+      this.el.removeEventListener('change', onNativeChange);
     };
   }
 }
@@ -130,8 +155,8 @@ export class BridgeAdapter implements EditorAdapter {
     return bridgeCall<string>('getValue', { kind: this.kind });
   }
 
-  setValue(value: string): void {
-    bridgeCall('setValue', { kind: this.kind, value });
+  setValue(value: string, context?: EditorMutationContext): void {
+    bridgeCall('setValue', { kind: this.kind, value, context });
   }
 
   getSelection(): SelectionInfo {
@@ -142,16 +167,16 @@ export class BridgeAdapter implements EditorAdapter {
     bridgeCall('setSelection', { kind: this.kind, start, end });
   }
 
-  replaceRange(start: number, end: number, value: string): void {
-    bridgeCall('replaceRange', { kind: this.kind, start, end, value });
+  replaceRange(start: number, end: number, value: string, context?: EditorMutationContext): void {
+    bridgeCall('replaceRange', { kind: this.kind, start, end, value, context });
   }
 
-  replaceSelection(value: string): void {
-    bridgeCall('replaceSelection', { kind: this.kind, value });
+  replaceSelection(value: string, context?: EditorMutationContext): void {
+    bridgeCall('replaceSelection', { kind: this.kind, value, context });
   }
 
-  insertAtCursor(value: string): void {
-    bridgeCall('insertAtCursor', { kind: this.kind, value });
+  insertAtCursor(value: string, context?: EditorMutationContext): void {
+    bridgeCall('insertAtCursor', { kind: this.kind, value, context });
   }
 
   undo(): boolean {
@@ -177,8 +202,15 @@ export class BridgeAdapter implements EditorAdapter {
     // their APIs — nothing extra to dispatch here.
   }
 
-  subscribe(listener: () => void): () => void {
-    const onChange = () => listener();
+  subscribe(listener: EditorChangeListener): () => void {
+    const onChange = (event: Event) => {
+      const detail = (event as CustomEvent<Partial<EditorChangeEvent>>).detail;
+      listener({
+        origin: detail?.origin ?? 'native',
+        transactionId: detail?.transactionId,
+        value: this.getValue(),
+      });
+    };
     this.el.addEventListener('fwa:editor-change', onChange);
     // These native events are a useful fallback for editor versions that do
     // not expose a page-world change hook (and cover CodeMirror 6 input).
@@ -217,7 +249,10 @@ function isVisible(el: HTMLElement): boolean {
 export function detectEditor(root: ParentNode = document): DetectedEditor | null {
   for (const cand of wikiConfig.editor.candidateSelectors) {
     const el = root.querySelector<HTMLElement>(cand.selector);
-    if (el) return { kind: cand.kind, element: el };
+    // Same visibility guard as the generic path: during SPA navigation the
+    // outgoing editor can linger hidden in the DOM for a moment, and mounting
+    // features onto that dying element strands them until the next mutation.
+    if (el && isVisible(el)) return { kind: cand.kind, element: el };
   }
 
   if (!wikiConfig.editor.genericDetection) return null;

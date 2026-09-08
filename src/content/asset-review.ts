@@ -66,19 +66,20 @@ export async function openAssetReviewModal(): Promise<void> {
   const article = await getCurrentArticlePath();
   const defaultPath = article ? wikiConfig.assets.folderForArticlePath(article.path) : '';
 
-  const modal = openModal('檢閱資料夾照片', 'fwa-modal-host', 'fwa-modal-wide');
+  const modal = openModal('圖片資料庫', 'fwa-assets-modal-host', 'fwa-modal-wide');
   const pathInput = el('input', {
     type: 'text',
     placeholder: '/docs/clients/example-client',
     value: defaultPath,
+    'aria-label': '圖片資料夾路徑',
   });
   const loadBtn = el('button', { class: 'fwa-btn fwa-btn-primary', text: '載入' });
-  const statusEl = el('div', { class: 'fwa-hint', text: '載入中…' });
+  const statusEl = el('div', { class: 'fwa-hint', text: '正在整理圖片…', role: 'status' });
   const listEl = el('div', { class: 'fwa-asset-list' });
 
   modal.body.append(
     el('label', { text: '資料夾路徑（會一併檢查子資料夾）' }),
-    el('div', { class: 'fwa-btn-row' }, [pathInput, loadBtn]),
+    el('div', { class: 'fwa-btn-row fwa-asset-path-row' }, [pathInput, loadBtn]),
     statusEl,
     listEl,
   );
@@ -92,16 +93,18 @@ export async function openAssetReviewModal(): Promise<void> {
 
   const updateDeleteBtnLabel = () => {
     deleteSelectedBtn.textContent = `刪除已選取 (${selected.size})`;
+    deleteSelectedBtn.disabled = selected.size === 0;
   };
+  updateDeleteBtnLabel();
 
   const renderCard = (folderPath: string, asset: AssetInfo): HTMLElement => {
-    const checkbox = el('input', { type: 'checkbox' });
+    const checkbox = el('input', { type: 'checkbox', 'aria-label': `選取 ${asset.filename}` });
     checkbox.addEventListener('change', () => {
       if (checkbox.checked) selected.set(asset.id, asset.filename);
       else selected.delete(asset.id);
       updateDeleteBtnLabel();
     });
-    const img = el('img', { class: 'fwa-asset-thumb', src: assetUrl(folderPath, asset.filename), loading: 'lazy' });
+    const img = el('img', { class: 'fwa-asset-thumb', src: assetUrl(folderPath, asset.filename), alt: asset.filename, loading: 'lazy' });
     const meta = el('div', { class: 'fwa-asset-meta' }, [
       renderEditableName(asset),
       el('div', {
@@ -119,6 +122,7 @@ export async function openAssetReviewModal(): Promise<void> {
   // not hypothetical: pointing the picker at a high-level folder and then
   // retargeting it before the first scan finishes reproduces it every time.
   let loadToken = 0;
+  modal.onClose(() => { loadToken++; });
 
   const load = async (): Promise<void> => {
     const token = ++loadToken;
@@ -160,7 +164,9 @@ export async function openAssetReviewModal(): Promise<void> {
 
   const confirmAndDelete = (items: Array<{ id: number; filename: string }>): Promise<void> => {
     return new Promise((resolve) => {
-      const confirmModal = openModal(`刪除 ${items.length} 個檔案`);
+      const confirmModal = openModal(`刪除 ${items.length} 個檔案`, 'fwa-assets-confirm-host');
+      let confirmed = false;
+      confirmModal.onClose(() => { if (!confirmed) resolve(); });
       confirmModal.body.append(
         el('div', { text: '確定要刪除以下檔案嗎？Wiki.js 沒有資源回收桶，此動作無法復原。' }),
         el(
@@ -176,6 +182,7 @@ export async function openAssetReviewModal(): Promise<void> {
         resolve();
       });
       ok.addEventListener('click', async () => {
+        confirmed = true;
         confirmModal.close();
         let succeeded = 0;
         const failures: string[] = [];
@@ -215,7 +222,7 @@ export async function openAssetReviewModal(): Promise<void> {
     const base = dot > 0 ? asset.filename.slice(0, dot) : asset.filename;
     const ext = dot > 0 ? asset.filename.slice(dot) : '';
 
-    const input = el('input', { type: 'text', class: 'fwa-asset-name-input', value: base, title: asset.filename });
+    const input = el('input', { type: 'text', class: 'fwa-asset-name-input', value: base, title: asset.filename, 'aria-label': `重新命名 ${asset.filename}` });
     let committing = false;
 
     const revert = () => {

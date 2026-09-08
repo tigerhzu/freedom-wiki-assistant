@@ -2,13 +2,14 @@ import type { AiLayoutRequestMessage } from '../shared/messages';
 import type { AiLayoutResponse, AiLayoutResult, AiLayoutUsage } from '../shared/ai-layout-types';
 import type { SelectionInfo } from '../shared/types';
 import type { EditorAdapter } from './editor-adapter';
+import { WikiDocumentSync } from './document-sync';
 import { AI_CHUNK_CHARS, splitMarkdownForAi } from './markdown-chunk';
 import { diffLines, isDiffFeasible } from './text-diff';
 import { el, openModal, showLoadingToast, showToast } from './ui';
 
 /**
- * AI 排版把內容送到背景 service worker（唯一持有 Azure
- *    OpenAI API key 的地方），文章過長時先切塊循序處理。
+ * AI 排版把內容送到背景 service worker（唯一使用 Provider
+ *    API key 的地方），文章過長時先切塊循序處理。
  *
  * 兩者都讀編輯器的內容（CodeMirror 的 document，不是頁面文字），也都
  * 永不自動儲存：套用只更新編輯器內的值，跟模板的「插入／取代全文」一樣，
@@ -18,7 +19,7 @@ import { el, openModal, showLoadingToast, showToast } from './ui';
  * 處理整篇文章。
  */
 
-// Longer than the background's own 60s Azure OpenAI timeout so we don't give
+// Longer than the background's own 60s provider timeout so we don't give
 // up on the response the background is still waiting to return. This is a
 // per-chunk timeout — a chunked run legitimately takes longer in total.
 const CLIENT_TIMEOUT_MS = 75000;
@@ -95,12 +96,29 @@ function uniqueStrings(values: string[]): string[] {
 
 function sumUsage(list: AiLayoutUsage[]): AiLayoutUsage | null {
   if (list.length === 0) return null;
+  const promptTokens = list.reduce((n, u) => n + u.promptTokens, 0);
+  const cachedTokens = list.reduce((n, u) => n + u.cachedTokens, 0);
+  const completionTokens = list.reduce((n, u) => n + u.completionTokens, 0);
+  const totalTokens = list.reduce((n, u) => n + u.totalTokens, 0);
+  const durationReported = list.every((u) => u.durationMs !== undefined);
+  const durationMs = durationReported ? list.reduce((n, u) => n + (u.durationMs ?? 0), 0) : undefined;
+  const reasoningReported = list.some((u) => u.reasoningTokens !== undefined);
   return {
-    promptTokens: list.reduce((n, u) => n + u.promptTokens, 0),
-    cachedTokens: list.reduce((n, u) => n + u.cachedTokens, 0),
-    completionTokens: list.reduce((n, u) => n + u.completionTokens, 0),
-    totalTokens: list.reduce((n, u) => n + u.totalTokens, 0),
+    promptTokens,
+    cachedTokens,
+    completionTokens,
+    totalTokens,
     cacheReported: list.every((u) => u.cacheReported),
+    ...(reasoningReported
+      ? { reasoningTokens: list.reduce((n, u) => n + (u.reasoningTokens ?? 0), 0) }
+      : {}),
+    ...(durationMs === undefined
+      ? {}
+      : {
+          durationMs,
+          outputTokensPerSecond:
+            durationMs > 0 ? Number(((completionTokens * 1000) / durationMs).toFixed(1)) : 0,
+        }),
   };
 }
 
@@ -112,7 +130,7 @@ function sumUsage(list: AiLayoutUsage[]): AiLayoutUsage | null {
 function logUsageTotal(usage: AiLayoutUsage | null, chunkTotal: number): void {
   const where = chunkTotal > 1 ? `${chunkTotal} 段合計` : '單次';
   if (!usage) {
-    console.info(`[FWA] AI 排版完成（${where}）— Azure 沒有回傳 usage，無法記錄 token 用量`);
+    console.info(`[FWA] AI 排版完成（${where}）— Provider 沒有回傳 usage，無法記錄 token 用量`);
     return;
   }
   const cached = usage.cacheReported ? `${usage.cachedTokens}` : '未回報';
@@ -120,11 +138,15 @@ function logUsageTotal(usage: AiLayoutUsage | null, chunkTotal: number): void {
     ? ` (${Math.round((usage.cachedTokens / usage.promptTokens) * 100)}%)`
     : '';
   console.info(
-    `[FWA] AI 排版完成（${where}）— input ${usage.promptTokens} / cached input ${cached}${hitRate} / output ${usage.completionTokens} / total ${usage.totalTokens}`,
+    `[FWA] AI 排版完成（${where}）— input ${usage.promptTokens} / cached input ${cached}${hitRate} / output ${usage.completionTokens}` +
+      `${usage.reasoningTokens === undefined ? '' : ` / reasoning ${usage.reasoningTokens}`}` +
+      ` / total ${usage.totalTokens}` +
+      `${usage.durationMs === undefined ? '' : ` / ${(usage.durationMs / 1000).toFixed(1)}s`}` +
+      `${usage.outputTokensPerSecond === undefined ? '' : ` / ${usage.outputTokensPerSecond} output tokens/s`}`,
   );
   if (!usage.cacheReported) {
     console.info(
-      '[FWA] 此 deployment 沒有回傳 usage.prompt_tokens_details.cached_tokens；Azure 的 Prompt Cache 需要 GPT-4o 或更新的模型，且提示長度要超過 1024 tokens。',
+      '[FWA] Provider 沒有回傳 usage.prompt_tokens_details.cached_tokens，無法計算 Prompt Cache 命中量。',
     );
   }
 }
@@ -134,6 +156,7 @@ export class AiLayoutFeature {
     private readonly adapter: EditorAdapter,
     private readonly prepareEditor: () => boolean = () => true,
     private readonly getVisualSelection: () => SelectionInfo | null = () => null,
+    private readonly documentSync = new WikiDocumentSync(adapter),
   ) {}
 
   detach(): void {
@@ -142,7 +165,7 @@ export class AiLayoutFeature {
 
   /** 有選取就只處理選取範圍，否則處理整篇文章。 */
   private resolveSource(visualSelection: SelectionInfo | null): LayoutSource | null {
-    const whole = this.adapter.getValue();
+    const whole = this.documentSync.markdown;
     let selection = visualSelection ?? this.adapter.getSelection();
 
     if (visualSelection && whole.slice(selection.start, selection.end) !== selection.text) {
@@ -213,7 +236,8 @@ export class AiLayoutFeature {
     }
 
     loading.close();
-    logUsageTotal(sumUsage(usages), chunks.length);
+    const totalUsage = sumUsage(usages);
+    logUsageTotal(totalUsage, chunks.length);
 
     if (chunks.length > 1) {
       warnings.push(
@@ -229,6 +253,7 @@ export class AiLayoutFeature {
         formatted_content: formatted.join('\n\n'),
         changes: uniqueStrings(changes),
         warnings: uniqueStrings(warnings),
+        ...(totalUsage ? { usage: totalUsage } : {}),
       },
     });
   }
@@ -242,10 +267,12 @@ export class AiLayoutFeature {
     target: ApplyTarget;
   }): void {
     const { title, original, result, target } = opts;
-    const modal = openModal(title, 'fwa-ai-layout-modal-host', 'fwa-modal-wide');
+    const modal = openModal(title, 'fwa-ai-layout-modal-host', 'fwa-modal-wide fwa-ai-review-modal');
+    const summary = el('aside', { class: 'fwa-ai-review-summary', 'aria-label': '排版說明與人工確認' });
+    modal.body.append(summary);
 
     if (target.mode === 'selection') {
-      modal.body.append(
+      summary.append(
         el('div', { class: 'fwa-ai-changes' }, [
           el('div', { class: 'fwa-ai-box-title', text: '處理範圍' }),
           el('div', { text: '只處理你選取的範圍，套用時也只會替換這一段，文章其他部分不會被動到。' }),
@@ -253,8 +280,27 @@ export class AiLayoutFeature {
       );
     }
 
+    if (result.usage?.durationMs !== undefined) {
+      const reasoning =
+        result.usage.reasoningTokens === undefined
+          ? '推理 tokens：Provider 未回報'
+          : `推理 tokens：${result.usage.reasoningTokens}`;
+      const rate =
+        result.usage.outputTokensPerSecond === undefined
+          ? ''
+          : `；有效輸出速度：${result.usage.outputTokensPerSecond} tokens/s`;
+      summary.append(
+        el('div', { class: 'fwa-ai-changes' }, [
+          el('div', { class: 'fwa-ai-box-title', text: 'Ornith 效能' }),
+          el('div', {
+            text: `API 總耗時：${(result.usage.durationMs / 1000).toFixed(1)} 秒${rate}；${reasoning}`,
+          }),
+        ]),
+      );
+    }
+
     if (result.warnings.length > 0) {
-      modal.body.append(
+      summary.append(
         el('div', { class: 'fwa-ai-warnings' }, [
           el('div', { class: 'fwa-ai-box-title', text: '⚠ 需要人工確認' }),
           el(
@@ -267,9 +313,9 @@ export class AiLayoutFeature {
     }
 
     if (result.changes.length > 0) {
-      modal.body.append(
-        el('div', { class: 'fwa-ai-changes' }, [
-          el('div', { class: 'fwa-ai-box-title', text: '整理項目' }),
+      summary.append(
+        el('details', { class: 'fwa-ai-changes' }, [
+          el('summary', { class: 'fwa-ai-box-title', text: `整理項目（${result.changes.length} 項）・點擊展開` }),
           el(
             'ul',
             {},
@@ -279,8 +325,14 @@ export class AiLayoutFeature {
       );
     }
 
-    modal.body.append(el('div', { class: 'fwa-ai-box-title', text: '內容差異（左：原文刪除／右：排版後新增）' }));
-    modal.body.append(this.buildDiffView(original, result.formatted_content));
+    const diff = this.buildDiffView(original, result.formatted_content);
+    diff.tabIndex = 0;
+    diff.setAttribute('role', 'region');
+    diff.setAttribute('aria-label', '內容差異，紅色減號為刪除，綠色加號為新增');
+    modal.body.append(el('section', { class: 'fwa-ai-review-content' }, [
+      el('div', { class: 'fwa-ai-box-title', text: '內容差異（− 紅色：原文刪除 ／ ＋ 綠色：排版後新增）' }),
+      diff,
+    ]));
 
     const cancel = el('button', { class: 'fwa-btn', text: '取消' });
     const confirm = el('button', { class: 'fwa-btn fwa-btn-primary', text: '套用（尚未儲存）' });
@@ -301,11 +353,13 @@ export class AiLayoutFeature {
    */
   private applyResult(target: ApplyTarget, formatted: string): boolean {
     if (target.mode === 'document') {
-      this.adapter.setValue(formatted);
-      return true;
+      return this.documentSync.setValue(formatted, {
+        origin: 'ai-layout',
+        view: 'ai-layout',
+      }).status !== 'conflict';
     }
 
-    const current = this.adapter.getValue();
+    const current = this.documentSync.markdown;
     let { start, end } = target;
 
     if (current.slice(start, end) !== target.text) {
@@ -318,9 +372,10 @@ export class AiLayoutFeature {
       end = first + target.text.length;
     }
 
-    this.adapter.setSelection(start, end);
-    this.adapter.replaceSelection(formatted);
-    return true;
+    return this.documentSync.replaceRange(start, end, formatted, {
+      origin: 'ai-layout',
+      view: 'ai-layout',
+    }).status !== 'conflict';
   }
 
   private buildDiffView(original: string, formatted: string): HTMLElement {

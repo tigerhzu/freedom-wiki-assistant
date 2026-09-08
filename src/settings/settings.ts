@@ -1,6 +1,11 @@
-import { getSettings, saveSettings } from '../shared/storage';
-import { sendMessage, type OpenOnboardingResponse } from '../shared/messages';
-import type { Settings } from '../shared/types';
+import { getSettings, onStorageChanged, saveSettings, STORAGE_KEYS } from '../shared/storage';
+import {
+  DEFAULT_SETTINGS,
+  ORNITH_DEFAULT_BASE_URL,
+  ORNITH_DEFAULT_MODEL,
+  type AiProvider,
+  type Settings,
+} from '../shared/types';
 import {
   defaultSidebarGradientEnd,
   mixHex,
@@ -22,50 +27,25 @@ const $ = <T extends HTMLElement>(id: string): T => {
 const statusEl = $('status');
 let statusTimer: number | undefined;
 
-function flashStatus(msg: string): void {
+function flashStatus(msg: string, state: 'saved' | 'changed' | 'error' = 'saved'): void {
   statusEl.textContent = msg;
+  statusEl.dataset.state = state;
   window.clearTimeout(statusTimer);
-  statusTimer = window.setTimeout(() => (statusEl.textContent = ''), 2500);
+  if (state === 'saved') {
+    statusTimer = window.setTimeout(() => (statusEl.textContent = '所有變更已儲存'), 3000);
+  }
 }
 
 let settings: Settings;
 let sidebarPersistTimer: number | undefined;
-let onboardingStatusTimer: number | undefined;
 
 async function persist(): Promise<void> {
-  await saveSettings(settings);
-  flashStatus('已儲存');
-}
-
-function flashOnboardingStatus(message: string): void {
-  const status = $<HTMLElement>('onboardingStatus');
-  status.textContent = message;
-  window.clearTimeout(onboardingStatusTimer);
-  onboardingStatusTimer = window.setTimeout(() => (status.textContent = ''), 4500);
-}
-
-async function openOnboardingFromSettings(): Promise<void> {
+  flashStatus('正在儲存…', 'changed');
   try {
-    // Re-read immediately before the reset so every unrelated setting remains
-    // intact. The onboarding page will merge its completion version again on
-    // close.
-    const latest = await getSettings();
-    settings = { ...latest, onboardingVersion: 0 };
-    await saveSettings(settings);
+    await saveSettings({ ...settings });
+    flashStatus('已儲存至此瀏覽器');
   } catch (error) {
-    flashOnboardingStatus(`無法重設首次登入提示：${error instanceof Error ? error.message : String(error)}`);
-    return;
-  }
-
-  try {
-    const response = await sendMessage({ type: 'fwa:open-onboarding' }) as OpenOnboardingResponse | undefined;
-    if (response?.ok) {
-      flashOnboardingStatus('已開啟首次登入提示');
-      return;
-    }
-    flashOnboardingStatus(response?.error ?? '已重設首次登入提示，請先開啟或重新整理 Wiki 頁面。');
-  } catch {
-    flashOnboardingStatus('已重設首次登入提示，請先開啟或重新整理 Wiki 頁面。');
+    flashStatus(`儲存失敗：${error instanceof Error ? error.message : String(error)}`, 'error');
   }
 }
 
@@ -97,7 +77,9 @@ function renderSidebarColor(): void {
   gradientPicker.value = gradientEnd;
 
   for (const swatch of document.querySelectorAll<HTMLElement>('.sidebar-color-swatch')) {
-    swatch.classList.toggle('active', swatch.dataset.color === normalizeSidebarColor(settings.sidebarColor));
+    const active = swatch.dataset.color === normalizeSidebarColor(settings.sidebarColor);
+    swatch.classList.toggle('active', active);
+    swatch.setAttribute('aria-pressed', String(active));
   }
 }
 
@@ -158,7 +140,7 @@ function bindSidebarColor(): void {
   });
   textInput.addEventListener('change', () => {
     if (!normalizeSidebarColor(textInput.value)) {
-      flashStatus('顏色格式錯誤，請輸入 #RGB 或 #RRGGBB');
+      flashStatus('顏色格式錯誤，請輸入 #RGB 或 #RRGGBB', 'error');
       renderSidebarColor();
     }
   });
@@ -173,7 +155,7 @@ function bindSidebarColor(): void {
   });
   gradientInput.addEventListener('change', () => {
     if (!normalizeSidebarColor(gradientInput.value)) {
-      flashStatus('漸層色格式錯誤，請輸入 #RGB 或 #RRGGBB');
+      flashStatus('漸層色格式錯誤，請輸入 #RGB 或 #RRGGBB', 'error');
       renderSidebarColor();
     }
   });
@@ -188,28 +170,191 @@ function bindSidebarColor(): void {
   renderSidebarColor();
 }
 
-function bindText(id: keyof Settings & string): void {
-  const input = $<HTMLInputElement>(id);
-  input.value = settings[id] as string;
-  input.addEventListener('change', () => {
-    (settings as unknown as Record<string, unknown>)[id] = input.value.trim();
-    void persist();
+function bindBooleanPreferences(): void {
+  const keys = ['showPet', 'enableFormattingMenu', 'enableImageDrop', 'enableClipboardImage'] as const;
+  for (const key of keys) {
+    const input = $<HTMLInputElement>(key);
+    input.checked = settings[key];
+    input.addEventListener('change', () => {
+      settings[key] = input.checked;
+      void persist();
+    });
+  }
+}
+
+function syncPetPreferences(): void {
+  onStorageChanged((keys, changes) => {
+    if (!keys.includes(STORAGE_KEYS.settings)) return;
+    const next = changes[STORAGE_KEYS.settings]?.newValue as Partial<Settings> | undefined;
+    if (!next) return;
+    // Pet actions also live on Wiki pages. Keep these fields current without
+    // replacing other preferences while the user is editing this form.
+    settings.showPet = next.showPet ?? DEFAULT_SETTINGS.showPet;
+    settings.petPosition = next.petPosition ?? DEFAULT_SETTINGS.petPosition;
+    $<HTMLInputElement>('showPet').checked = settings.showPet;
   });
 }
 
-function bindAzureSettings(): void {
-  bindText('azureEndpoint');
-  bindText('azureDeployment');
-  bindText('azureApiVersion');
-  bindText('azureApiKey');
+function bindNavigation(): void {
+  const tabs = [...document.querySelectorAll<HTMLButtonElement>('[role="tab"][data-pane]')];
+  const activate = (tab: HTMLButtonElement): void => {
+    for (const candidate of tabs) {
+      const selected = candidate === tab;
+      candidate.setAttribute('aria-selected', String(selected));
+      candidate.tabIndex = selected ? 0 : -1;
+      $(`pane-${candidate.dataset.pane}`).hidden = !selected;
+    }
+    // The hash also makes individual settings sections directly linkable.
+    window.history.replaceState(null, '', `#${tab.dataset.pane}`);
+  };
+  for (const [index, tab] of tabs.entries()) {
+    tab.addEventListener('click', () => activate(tab));
+    tab.addEventListener('keydown', (event) => {
+      let target: number | undefined;
+      if (event.key === 'ArrowDown' || event.key === 'ArrowRight') target = (index + 1) % tabs.length;
+      if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') target = (index - 1 + tabs.length) % tabs.length;
+      if (event.key === 'Home') target = 0;
+      if (event.key === 'End') target = tabs.length - 1;
+      if (target === undefined) return;
+      event.preventDefault();
+      activate(tabs[target]);
+      tabs[target].focus();
+    });
+  }
+  const fromHash = (): void => activate(tabs.find((tab) => `#${tab.dataset.pane}` === window.location.hash) ?? tabs[0]);
+  window.addEventListener('hashchange', fromHash);
+  fromHash();
+  const media = window.matchMedia('(max-width: 800px)');
+  const updateOrientation = (): void => {
+    document.querySelector('[role="tablist"]')?.setAttribute('aria-orientation', media.matches ? 'horizontal' : 'vertical');
+  };
+  media.addEventListener('change', updateOrientation);
+  updateOrientation();
+  // Fields save on commit (blur / Enter); keep pending edits visible meanwhile.
+  document.querySelectorAll<HTMLInputElement>('.settings-pane input').forEach((input) => {
+    input.addEventListener('input', () => flashStatus('尚有變更 · 完成輸入後自動儲存', 'changed'));
+  });
+}
 
-  const keyInput = $<HTMLInputElement>('azureApiKey');
-  const toggle = $<HTMLButtonElement>('toggleAzureApiKey');
+function confirmSettingsAction(title: string, description: string, action: string): Promise<boolean> {
+  const dialog = $<HTMLDialogElement>('settingsConfirm');
+  $('confirmTitle').textContent = title;
+  $('confirmDescription').textContent = description;
+  $('confirmProceed').textContent = action;
+  dialog.returnValue = '';
+  return new Promise((resolve) => {
+    dialog.addEventListener('close', () => resolve(dialog.returnValue === 'confirm'), { once: true });
+    dialog.showModal();
+  });
+}
+
+function bindApiKeyToggle(inputId: string, toggleId: string): void {
+  const keyInput = $<HTMLInputElement>(inputId);
+  const toggle = $<HTMLButtonElement>(toggleId);
   toggle.addEventListener('click', () => {
     const isPassword = keyInput.type === 'password';
     keyInput.type = isPassword ? 'text' : 'password';
     toggle.textContent = isPassword ? '隱藏' : '顯示';
   });
+}
+
+const AI_TEXT_FIELDS = [
+  'ornithBaseUrl',
+  'ornithModel',
+  'ornithApiKey',
+  'azureEndpoint',
+  'azureDeployment',
+  'azureApiVersion',
+  'azureApiKey',
+] as const satisfies ReadonlyArray<keyof Settings & string>;
+
+function lockedProvider(): Exclude<AiProvider, ''> | '' {
+  if (settings.ornithApiKey.trim()) return 'ornith';
+  if (settings.azureApiKey.trim()) return 'azure';
+  return '';
+}
+
+function renderAiSettings(): void {
+  const locked = lockedProvider();
+  const providerRadios = [
+    $<HTMLInputElement>('aiProviderOrnith'),
+    $<HTMLInputElement>('aiProviderAzure'),
+  ];
+  for (const radio of providerRadios) {
+    radio.checked = radio.value === settings.aiProvider;
+    radio.disabled = !!locked && radio.value !== locked;
+  }
+
+  $<HTMLFieldSetElement>('ornithSettings').disabled = settings.aiProvider !== 'ornith';
+  $<HTMLFieldSetElement>('azureSettings').disabled = settings.aiProvider !== 'azure';
+  $('ornithSettings').hidden = settings.aiProvider !== 'ornith';
+  $('azureSettings').hidden = settings.aiProvider !== 'azure';
+  $<HTMLElement>('providerLockStatus').textContent = locked
+    ? `目前已儲存 ${locked === 'ornith' ? 'Local Ornith' : 'Azure OpenAI'} API Key；若要切換，請先移除此 Provider 設定。`
+    : settings.aiProvider
+      ? '填入設定後會儲存在此瀏覽器本機。'
+      : '請先選擇一個 Provider。';
+}
+
+function syncAiInputs(): void {
+  for (const id of AI_TEXT_FIELDS) $<HTMLInputElement>(id).value = settings[id];
+}
+
+function bindAiSettings(): void {
+  syncAiInputs();
+  for (const id of AI_TEXT_FIELDS) {
+    const input = $<HTMLInputElement>(id);
+    input.addEventListener('change', async () => {
+      settings[id] = input.value.trim();
+      await persist();
+      renderAiSettings();
+    });
+  }
+
+  const providerRadios = [
+    $<HTMLInputElement>('aiProviderOrnith'),
+    $<HTMLInputElement>('aiProviderAzure'),
+  ];
+  for (const radio of providerRadios) {
+    radio.addEventListener('change', async () => {
+      if (!radio.checked) return;
+      const locked = lockedProvider();
+      if (locked && locked !== radio.value) {
+        flashStatus('請先移除目前 Provider 設定');
+        renderAiSettings();
+        return;
+      }
+      settings.aiProvider = radio.value as Exclude<AiProvider, ''>;
+      await persist();
+      renderAiSettings();
+    });
+  }
+
+  bindApiKeyToggle('ornithApiKey', 'toggleOrnithApiKey');
+  bindApiKeyToggle('azureApiKey', 'toggleAzureApiKey');
+
+  $<HTMLButtonElement>('removeOrnithSettings').addEventListener('click', async () => {
+    settings.ornithBaseUrl = ORNITH_DEFAULT_BASE_URL;
+    settings.ornithModel = ORNITH_DEFAULT_MODEL;
+    settings.ornithApiKey = '';
+    if (settings.aiProvider === 'ornith') settings.aiProvider = '';
+    syncAiInputs();
+    await persist();
+    renderAiSettings();
+  });
+
+  $<HTMLButtonElement>('removeAzureSettings').addEventListener('click', async () => {
+    settings.azureEndpoint = '';
+    settings.azureDeployment = '';
+    settings.azureApiKey = '';
+    settings.azureApiVersion = DEFAULT_SETTINGS.azureApiVersion;
+    if (settings.aiProvider === 'azure') settings.aiProvider = '';
+    syncAiInputs();
+    await persist();
+    renderAiSettings();
+  });
+
+  renderAiSettings();
 }
 
 function bindFolderStrategy(): void {
@@ -230,6 +375,11 @@ function bindFolderStrategy(): void {
 
 async function downloadFullSettings(includeApiKey: boolean): Promise<void> {
   try {
+    if (includeApiKey && !(await confirmSettingsAction(
+      '將 API 金鑰一起備份？',
+      '這份 JSON 檔案會包含你的 API 金鑰。任何取得檔案的人都可能使用對應的 AI 服務，請將備份保存在私人位置。',
+      '下載含金鑰的備份',
+    ))) return;
     const json = await exportFullSettings({ includeApiKey });
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -242,22 +392,22 @@ async function downloadFullSettings(includeApiKey: boolean): Promise<void> {
     URL.revokeObjectURL(url);
     flashStatus(includeApiKey ? '完整設定（含 API Key）已匯出' : '完整設定（不含 API Key）已匯出');
   } catch (err) {
-    flashStatus(`匯出失敗：${err instanceof Error ? err.message : String(err)}`);
+    flashStatus(`匯出失敗：${err instanceof Error ? err.message : String(err)}`, 'error');
   }
 }
 
 async function init(): Promise<void> {
   settings = await getSettings();
 
+  bindNavigation();
+  bindBooleanPreferences();
+  syncPetPreferences();
   bindFolderStrategy();
-  bindText('defaultImageFolder');
-  bindText('imageMarkdownFormat');
-  bindAzureSettings();
+  bindAiSettings();
   bindSidebarColor();
 
   $('exportFullSettings').addEventListener('click', () => void downloadFullSettings(true));
   $('exportSettingsWithoutApiKey').addEventListener('click', () => void downloadFullSettings(false));
-  $('openOnboarding').addEventListener('click', () => void openOnboardingFromSettings());
 
   $('importFullSettings').addEventListener('click', () => {
     const input = document.createElement('input');
@@ -267,15 +417,20 @@ async function init(): Promise<void> {
       const file = input.files?.[0];
       if (!file) return;
       try {
+        if (!(await confirmSettingsAction(
+          '用備份還原工作空間？',
+          `「${file.name}」將取代目前的設定、客戶、資料夾與模板。若想保留現況，請取消並先下載一份備份。`,
+          '還原這份備份',
+        ))) return;
         const result = await importFullSettings(await file.text());
         flashStatus(`已還原設定：${result.customerCount} 位客戶、${result.templateCount} 個模板`);
         window.setTimeout(() => window.location.reload(), 400);
       } catch (err) {
-        flashStatus(`匯入失敗：${err instanceof Error ? err.message : String(err)}`);
+        flashStatus(`匯入失敗：${err instanceof Error ? err.message : String(err)}`, 'error');
       }
     });
     input.click();
   });
 }
 
-void init();
+void init().catch((error) => flashStatus(`無法載入設定：${error instanceof Error ? error.message : String(error)}`, 'error'));

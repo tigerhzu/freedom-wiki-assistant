@@ -9,7 +9,7 @@ import { wikiConfig } from '../config/wiki-config';
  *
  *   1. 擴充功能的「AI 排版」按鈕
  *      → src/background/ai-layout-service.ts 的 SYSTEM_PROMPT
- *        由 buildLayoutRulesPrompt() 組出。
+ *        由 buildLayoutRulesPrompt() 組出，Azure 與 Ornith 使用相同規則。
  *   2. Claude Code Skill（人工排版 / /wiki-layout-extension）
  *      → .claude/skills/wiki-layout-extension/references/color-annotation-revised.md
  *        的 GENERATED 區塊由 renderColorAnnotationMarkdown() 產生，

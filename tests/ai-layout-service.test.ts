@@ -1,9 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AzureOpenAiError } from '../src/shared/azure-openai-client';
-import { activeColorRoles, buildLayoutRulesPrompt, layoutSyntax } from '../src/shared/layout-rules';
+import { OrnithApiError } from '../src/shared/ornith-client';
+import {
+  activeColorRoles,
+  buildLayoutRulesPrompt,
+  layoutSyntax,
+} from '../src/shared/layout-rules';
 import { DEFAULT_SETTINGS, type Settings } from '../src/shared/types';
 
 const callAzureChatCompletion = vi.fn();
+const callOrnithChatCompletion = vi.fn();
 vi.mock('../src/shared/azure-openai-client', async () => {
   const actual = await vi.importActual<typeof import('../src/shared/azure-openai-client')>(
     '../src/shared/azure-openai-client',
@@ -11,6 +17,15 @@ vi.mock('../src/shared/azure-openai-client', async () => {
   return {
     ...actual,
     callAzureChatCompletion: (...args: unknown[]) => callAzureChatCompletion(...args),
+  };
+});
+vi.mock('../src/shared/ornith-client', async () => {
+  const actual = await vi.importActual<typeof import('../src/shared/ornith-client')>(
+    '../src/shared/ornith-client',
+  );
+  return {
+    ...actual,
+    callOrnithChatCompletion: (...args: unknown[]) => callOrnithChatCompletion(...args),
   };
 });
 
@@ -23,10 +38,17 @@ function completion(text: string, usage: unknown = null): { text: string; usage:
 
 const settingsWithAzure: Settings = {
   ...DEFAULT_SETTINGS,
+  aiProvider: 'azure',
   azureEndpoint: 'https://r.openai.azure.com',
   azureDeployment: 'gpt-4.1',
   azureApiKey: 'key',
   azureApiVersion: '2024-12-01-preview',
+};
+
+const settingsWithOrnith: Settings = {
+  ...DEFAULT_SETTINGS,
+  aiProvider: 'ornith',
+  ornithApiKey: 'ornith-key',
 };
 
 describe('parseAiLayoutResponse', () => {
@@ -77,6 +99,7 @@ describe('parseAiLayoutResponse', () => {
 describe('runAiLayout', () => {
   beforeEach(() => {
     callAzureChatCompletion.mockReset();
+    callOrnithChatCompletion.mockReset();
   });
 
   it('rejects empty content without making a network call', async () => {
@@ -104,6 +127,65 @@ describe('runAiLayout', () => {
     const result = await runAiLayout('原文', settingsWithAzure);
     expect(result.formatted_content).toBe('整理後');
     expect(result.changes).toEqual(['a']);
+  });
+
+  it('calls only Ornith when Local Ornith is selected', async () => {
+    callOrnithChatCompletion.mockResolvedValue(
+      completion('{"formatted_content": "Ornith 整理後", "changes": [], "warnings": []}'),
+    );
+    const result = await runAiLayout('原文', settingsWithOrnith);
+    expect(result.formatted_content).toBe('Ornith 整理後');
+    expect(callOrnithChatCompletion).toHaveBeenCalledOnce();
+    expect(callOrnithChatCompletion.mock.calls[0][2]).toMatchObject({ temperature: 0.1, maxTokens: 4096 });
+    expect(callAzureChatCompletion).not.toHaveBeenCalled();
+  });
+
+  it('calls only Azure when Azure OpenAI is selected', async () => {
+    callAzureChatCompletion.mockResolvedValue(
+      completion('{"formatted_content": "Azure 整理後", "changes": [], "warnings": []}'),
+    );
+    await runAiLayout('原文', settingsWithAzure);
+    expect(callAzureChatCompletion).toHaveBeenCalledOnce();
+    expect(callAzureChatCompletion.mock.calls[0][2]).toMatchObject({ temperature: 0.2, maxTokens: 4096 });
+    expect(callOrnithChatCompletion).not.toHaveBeenCalled();
+  });
+
+  it('rejects simultaneous provider keys before either network client is called', async () => {
+    await expect(
+      runAiLayout('原文', { ...settingsWithAzure, ornithApiKey: 'other-key' }),
+    ).rejects.toMatchObject({ code: 'config-missing' });
+    expect(callAzureChatCompletion).not.toHaveBeenCalled();
+    expect(callOrnithChatCompletion).not.toHaveBeenCalled();
+  });
+
+  it('does not fall back to Azure when Ornith is selected but only an Azure key exists', async () => {
+    await expect(
+      runAiLayout('原文', { ...settingsWithOrnith, ornithApiKey: '', azureApiKey: 'azure-key' }),
+    ).rejects.toMatchObject({ code: 'config-missing' });
+    expect(callAzureChatCompletion).not.toHaveBeenCalled();
+    expect(callOrnithChatCompletion).not.toHaveBeenCalled();
+  });
+
+  it('does not fall back to Ornith when Azure is selected but only an Ornith key exists', async () => {
+    await expect(
+      runAiLayout('原文', { ...settingsWithAzure, azureApiKey: '', ornithApiKey: 'ornith-key' }),
+    ).rejects.toMatchObject({ code: 'config-missing' });
+    expect(callAzureChatCompletion).not.toHaveBeenCalled();
+    expect(callOrnithChatCompletion).not.toHaveBeenCalled();
+  });
+
+  it('requires a provider selection before either network client is called', async () => {
+    await expect(runAiLayout('原文', DEFAULT_SETTINGS)).rejects.toMatchObject({ code: 'config-missing' });
+    expect(callAzureChatCompletion).not.toHaveBeenCalled();
+    expect(callOrnithChatCompletion).not.toHaveBeenCalled();
+  });
+
+  it('does not infer a provider from a key when provider selection is explicitly blank', async () => {
+    await expect(
+      runAiLayout('原文', { ...DEFAULT_SETTINGS, aiProvider: '', ornithApiKey: 'orphaned-key' }),
+    ).rejects.toMatchObject({ code: 'config-missing' });
+    expect(callAzureChatCompletion).not.toHaveBeenCalled();
+    expect(callOrnithChatCompletion).not.toHaveBeenCalled();
   });
 
   it('attaches the token usage reported by the client', async () => {
@@ -142,6 +224,11 @@ describe('runAiLayout', () => {
   it('propagates an AzureOpenAiError from the client as an AiLayoutError with the same code', async () => {
     callAzureChatCompletion.mockRejectedValue(new AzureOpenAiError('timed out', 'timeout'));
     await expect(runAiLayout('原文', settingsWithAzure)).rejects.toMatchObject({ code: 'timeout' });
+  });
+
+  it('propagates an OrnithApiError from the client as an AiLayoutError with the same code', async () => {
+    callOrnithChatCompletion.mockRejectedValue(new OrnithApiError('timed out', 'timeout'));
+    await expect(runAiLayout('原文', settingsWithOrnith)).rejects.toMatchObject({ code: 'timeout' });
   });
 });
 
@@ -216,6 +303,21 @@ describe('runAiLayout system prompt', () => {
     await runAiLayout('整篇文章', settingsWithAzure);
     const messages = callAzureChatCompletion.mock.calls[0][1] as Array<{ role: string; content: string }>;
     expect(messages[1].content).not.toContain('段後的第');
+  });
+
+  it('uses the same complete Azure/Skill rules for Ornith and Azure', async () => {
+    callOrnithChatCompletion.mockResolvedValue(
+      completion('{"formatted_content": "整理後", "changes": [], "warnings": []}'),
+    );
+    await runAiLayout('Ornith 原文', settingsWithOrnith);
+    const ornithMessages = callOrnithChatCompletion.mock.calls[0][1] as Array<{ content: string }>;
+
+    await runAiLayout('Azure 原文', settingsWithAzure);
+    const azureMessages = callAzureChatCompletion.mock.calls.at(-1)?.[1] as Array<{ content: string }>;
+
+    expect(ornithMessages[0].content).toContain(buildLayoutRulesPrompt());
+    expect(azureMessages[0].content).toContain(buildLayoutRulesPrompt());
+    expect(ornithMessages[0].content).toBe(azureMessages[0].content);
   });
 });
 

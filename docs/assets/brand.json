@@ -1,0 +1,15 @@
+{
+  "title": "Wiki Studio",
+  "subtitle": "From Markdown to a living workspace.",
+  "description": "Wiki.js visual editing, assets and reusable templates.",
+  "accent": "#6eb7ff",
+  "eyebrow": "WRITE / ORGANIZE / PUBLISH",
+  "chips": [
+    "TypeScript",
+    "Manifest V3",
+    "Wiki.js"
+  ],
+  "footer": "ONE DOCUMENT. MANY WAYS TO CREATE.",
+  "number": "01",
+  "logoSource": "src/icons/wiki-studio.svg"
+}

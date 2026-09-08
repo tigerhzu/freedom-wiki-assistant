@@ -1,3 +1,5 @@
+import { parseHtmlImage, parseMarkdownImage } from './markdown-image';
+
 export type HybridBlockType =
   | 'heading'
   | 'paragraph'
@@ -12,9 +14,14 @@ export type HybridBlockType =
   | 'mixed'
   | 'raw';
 
+/** Semantic class suffix emitted by Wiki.js' markdown-it-attrs renderer. */
+export type HybridSemanticType = string;
+
 export interface HybridMarkdownBlock {
   id: string;
   type: HybridBlockType;
+  /** Semantic meaning carried by a trailing Wiki.js attrs line, if any. */
+  semanticType?: HybridSemanticType;
   rawMarkdown: string;
   renderedHTML: string;
   startOffset: number;
@@ -38,6 +45,28 @@ const RE_HR = /^ {0,3}(?:(?:\*\s*){3,}|(?:-\s*){3,}|(?:_\s*){3,})$/;
 const RE_INDENTED = /^[ \t]+\S/;
 const RE_HTML_OPEN = /^ {0,3}<([a-zA-Z][\w:-]*)\b[^>]*>[ \t]*$/;
 const BLOCK_TAGS = new Set(['div', 'details', 'section', 'figure', 'blockquote', 'table', 'aside']);
+const RE_ATTRS_LINE = /^ {0,3}\{([^{}\n]*)\}[ \t]*$/;
+
+/**
+ * Read Wiki.js' semantic class from source, rather than from the renderer's
+ * current paint. The renderer consumes `{.is-warning}` (and its siblings) into
+ * a DOM class, so the source block must retain the meaning independently of
+ * whichever DOM tree is currently mounted. Keeping the suffix open-ended also
+ * preserves site-specific variants such as `success`, `note`, or a custom
+ * `is-*` class without pretending the extension owns their CSS.
+ */
+export function semanticTypeFromMarkdown(markdown: string): HybridSemanticType | undefined {
+  const lines = markdown.split(/\r?\n/);
+  for (let index = lines.length - 1; index >= 0; index--) {
+    const line = lines[index].trim();
+    if (line === '') continue;
+    const attrs = RE_ATTRS_LINE.exec(line);
+    if (!attrs) break;
+    const match = /(?:^|\s)\.is-([A-Za-z][\w-]*)(?=$|\s)/.exec(attrs[1]);
+    if (match) return match[1];
+  }
+  return undefined;
+}
 
 function sourceLines(source: string): SourceLine[] {
   const lines: SourceLine[] = [];
@@ -75,11 +104,20 @@ function interruptsParagraph(lines: readonly SourceLine[], index: number): boole
 
 function classifyInline(raw: string): HybridBlockType {
   const trimmed = raw.trim();
-  if (/^!\[[^\]]*\]\([\s\S]+\)$/.test(trimmed) || /^<img\b[\s\S]*>$/i.test(trimmed)) return 'image';
+  // A greedy expression also matches several adjacent images (or captions).
+  // Only a token consuming the entire body is a standalone image block.
+  const image = parseMarkdownImage(trimmed, 0) ?? parseHtmlImage(trimmed, 0);
+  if (image?.end === trimmed.length) return 'image';
   if (/^\[[^\]]+\]\([\s\S]+\)$/.test(trimmed)) return 'link';
   if (/^(?:\{\{|\{%|:::|\[\[|<%)/.test(trimmed)) return 'raw';
   if (/<[a-zA-Z][^>]*>/.test(trimmed)) return 'mixed';
   return 'paragraph';
+}
+
+function stripTrailingAttributeLines(raw: string): string {
+  const lines = raw.split(/\r?\n/);
+  while (lines.length > 1 && RE_ATTRS_LINE.test(lines.at(-1)!.trim())) lines.pop();
+  return lines.join('\n');
 }
 
 function makeBlock(source: string, lines: readonly SourceLine[], from: number, to: number, type: HybridBlockType): HybridMarkdownBlock {
@@ -89,6 +127,7 @@ function makeBlock(source: string, lines: readonly SourceLine[], from: number, t
   return {
     id: `${type}:${first.start}:${last.end}`,
     type,
+    semanticType: semanticTypeFromMarkdown(rawMarkdown),
     rawMarkdown,
     renderedHTML: '',
     startOffset: first.start,
@@ -96,6 +135,58 @@ function makeBlock(source: string, lines: readonly SourceLine[], from: number, t
     startLine: first.line,
     endLine: last.line,
   };
+}
+
+function isAttributeOnlyBlock(block: HybridMarkdownBlock): boolean {
+  return block.rawMarkdown
+    .split(/\r?\n/)
+    .every((line) => RE_ATTRS_LINE.test(line.trim()));
+}
+
+/**
+ * Some Markdown block rules stop before a following attrs line (notably
+ * headings, tables, fences, and raw HTML). Wiki.js treats an adjacent
+ * `{.variant}` line as metadata for the preceding block, not as a new text
+ * paragraph. Attach those lines to the same source block so a later visual
+ * edit cannot orphan or drop them.
+ */
+function attachAdjacentAttributeBlocks(
+  source: string,
+  blocks: readonly HybridMarkdownBlock[],
+): HybridMarkdownBlock[] {
+  const merged: HybridMarkdownBlock[] = [];
+  for (const block of blocks) {
+    const previous = merged.at(-1);
+    const separator = previous
+      ? source.slice(previous.endOffset, block.startOffset)
+      : '';
+    const isSingleBlankSeparator = /^(?:\r?\n)$/.test(separator);
+    const isSemanticAttributeAfterBlank =
+      block.semanticType !== undefined && /^(?:\r?\n)+$/.test(separator);
+    if (
+      previous &&
+      isAttributeOnlyBlock(block) &&
+      // A user pressing Enter at the end of a rendered alert can leave one
+      // empty Markdown line before the attrs line. Wiki.js still renders the
+      // attrs as metadata for the preceding block, so keep that metadata
+      // attached instead of letting the visual round-trip turn the alert into
+      // an unstyled quote. Semantic attrs may bridge more than one blank line
+      // because older versions of the visual editor inserted two line breaks.
+      (isSingleBlankSeparator || isSemanticAttributeAfterBlank)
+    ) {
+      const rawMarkdown = source.slice(previous.startOffset, block.endOffset);
+      merged[merged.length - 1] = {
+        ...previous,
+        rawMarkdown,
+        endOffset: block.endOffset,
+        endLine: block.endLine,
+        semanticType: semanticTypeFromMarkdown(rawMarkdown),
+      };
+      continue;
+    }
+    merged.push(block);
+  }
+  return merged;
 }
 
 /**
@@ -175,7 +266,22 @@ export function parseHybridBlocks(source: string): HybridMarkdownBlock[] {
     }
     if (RE_QUOTE.test(text)) {
       i++;
-      while (i < lines.length && lines[i].text.trim() !== '' && !RE_HEADING.test(lines[i].text) && !RE_FENCE.test(lines[i].text)) i++;
+      while (i < lines.length && lines[i].text.trim() !== '') {
+        // Attribute lines are metadata for this quote, not lazy quote text.
+        // Stop after the suffix so a following thematic break cannot be
+        // swallowed into the quote and hide the semantic class.
+        if (RE_ATTRS_LINE.test(lines[i].text.trim())) {
+          i++;
+          while (i < lines.length && RE_ATTRS_LINE.test(lines[i].text.trim())) i++;
+          break;
+        }
+        // A missing blank separator is easy to create by pressing Enter in
+        // the visual editor. Keep the quote's attrs intact even in that
+        // tolerant input by letting the following rule become its own block.
+        if (RE_HR.test(lines[i].text)) break;
+        if (RE_HEADING.test(lines[i].text) || RE_FENCE.test(lines[i].text)) break;
+        i++;
+      }
       blocks.push(makeBlock(source, lines, from, i - 1, 'blockquote'));
       continue;
     }
@@ -201,10 +307,24 @@ export function parseHybridBlocks(source: string): HybridMarkdownBlock[] {
     i++;
     while (i < lines.length && lines[i].text.trim() !== '' && !interruptsParagraph(lines, i)) i++;
     const provisional = makeBlock(source, lines, from, i - 1, 'paragraph');
-    provisional.type = classifyInline(provisional.rawMarkdown);
+    // markdown-it-attrs consumes a trailing attribute line from the rendered
+    // DOM, but it is still part of this source block. Classify the body
+    // without that metadata so an image/link with `{.variant}` does not get
+    // downgraded to a generic paragraph during the round-trip.
+    provisional.type = classifyInline(stripTrailingAttributeLines(provisional.rawMarkdown));
     provisional.id = `${provisional.type}:${provisional.startOffset}:${provisional.endOffset}`;
     blocks.push(provisional);
   }
 
-  return blocks;
+  const blocksWithMetadata = attachAdjacentAttributeBlocks(source, blocks);
+
+  // Offsets are bookkeeping, not identity. A text edit changes the offsets of
+  // every following block, so using `start:end` as an id makes an unchanged
+  // DOM block look newly created after every source projection. The ordinal is
+  // stable for the common edit-in-place case; a real insert/delete is a
+  // structural change and is allowed to shift later ordinals.
+  return blocksWithMetadata.map((block, index) => ({
+    ...block,
+    id: `block:${index}`,
+  }));
 }

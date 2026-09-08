@@ -17,6 +17,15 @@ export interface CloseOnboardingMessage {
   type: 'fwa:close-onboarding';
 }
 
+export interface ActivateFutureMessage {
+  type: 'fwa:activate-future';
+}
+
+export interface ActivateFutureResponse {
+  ok: boolean;
+  error?: string;
+}
+
 export interface OpenTabMessage {
   type: 'fwa:open-tab';
   url: string;
@@ -24,7 +33,7 @@ export interface OpenTabMessage {
 
 /**
  * Sent by content/ai-layout.ts, handled by background/service-worker.ts.
- * Only the raw page content crosses this boundary — the Azure OpenAI
+ * Only the raw page content crosses this boundary — the provider
  * request/response and the API key never leave the background context.
  */
 export interface AiLayoutRequestMessage {
@@ -44,6 +53,7 @@ export type RuntimeMessage =
   | OpenSettingsMessage
   | OpenOnboardingMessage
   | CloseOnboardingMessage
+  | ActivateFutureMessage
   | OpenTabMessage
   | AiLayoutRequestMessage;
 

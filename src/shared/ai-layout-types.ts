@@ -1,7 +1,7 @@
 /**
  * Contract for the "AI 排版" feature. Shared between the content script
  * (which only ever sees this shape) and the background service worker
- * (which is the only place allowed to hold the Azure OpenAI API key).
+ * (which is the only place allowed to use the selected provider API key).
  */
 
 /**
@@ -22,6 +22,12 @@ export interface AiLayoutUsage {
   completionTokens: number;
   totalTokens: number;
   cacheReported: boolean;
+  /** Provider-reported hidden reasoning tokens, when available. */
+  reasoningTokens?: number;
+  /** End-to-end provider request duration measured by the client. */
+  durationMs?: number;
+  /** completionTokens / duration, useful for comparing warm Ornith runs. */
+  outputTokensPerSecond?: number;
 }
 
 export interface AiLayoutResult {

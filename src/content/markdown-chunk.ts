@@ -1,7 +1,7 @@
 import { splitMarkdownBlocks } from './quick-format';
 
 /**
- * 把過長的 Markdown 切成多次 Azure OpenAI 呼叫的區塊。
+ * 把過長的 Markdown 切成多次 AI Provider 呼叫的區塊。
  *
  * 為什麼需要切塊：AI 排版要求模型回傳「排版後的完整內容」，所以輸出長度與
  * 輸入同一個量級（再加上顏色標記與 JSON escape 的膨脹）。呼叫端的

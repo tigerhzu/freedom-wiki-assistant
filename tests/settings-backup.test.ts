@@ -31,14 +31,30 @@ beforeEach(() => store.clear());
 
 describe('settings-backup', () => {
   it('uses the current brand palette for fresh installs', async () => {
-    expect((await getSettings()).sidebarColor).toBe('#a93d3d');
-    expect((await getSettings()).sidebarGradientColor).toBe('#531abc');
-    expect(DEFAULT_SETTINGS.sidebarColor).toBe('#a93d3d');
-    expect(DEFAULT_SETTINGS.sidebarGradientColor).toBe('#531abc');
+    expect((await getSettings()).sidebarColor).toBe('#287dea');
+    expect((await getSettings()).sidebarGradientColor).toBe('#287dea');
+    expect(DEFAULT_SETTINGS.sidebarColor).toBe('#287dea');
+    expect(DEFAULT_SETTINGS.sidebarGradientColor).toBe('#287dea');
+  });
+
+  it('restores Pet visibility while older backups default to showing it', async () => {
+    const settings = await getSettings();
+    expect(settings.showPet).toBe(true);
+    await saveSettings({ ...settings, showPet: false });
+    const payload = JSON.parse(await exportFullSettings());
+    expect(payload.settings.showPet).toBe(false);
+    await importFullSettings(JSON.stringify(payload));
+    expect((await getSettings()).showPet).toBe(false);
+    delete payload.settings.showPet;
+    await importFullSettings(JSON.stringify(payload));
+    expect((await getSettings()).showPet).toBe(true);
+    payload.settings.showPet = 'false';
+    await expect(importFullSettings(JSON.stringify(payload))).rejects.toThrow('showPet');
   });
 
   it('can export the complete snapshot without exposing the API key', async () => {
     const settings = await getSettings();
+    settings.aiProvider = 'azure';
     settings.azureApiKey = 'secret-api-key';
     settings.sidebarColor = '#a93d3d';
     await saveSettings(settings);
@@ -46,8 +62,69 @@ describe('settings-backup', () => {
     const payload = JSON.parse(await exportFullSettings({ includeApiKey: false }));
 
     expect(payload.settings.azureApiKey).toBe('');
+    expect(payload.settings.ornithApiKey).toBe('');
     expect((await getSettings()).azureApiKey).toBe('secret-api-key');
     expect(payload.settings.sidebarColor).toBe('#a93d3d');
+  });
+
+  it('persists the selected provider across a fresh settings read', async () => {
+    const settings = await getSettings();
+    settings.aiProvider = 'ornith';
+    settings.ornithApiKey = 'local-secret';
+    await saveSettings(settings);
+
+    const reloaded = await getSettings();
+    expect(reloaded.aiProvider).toBe('ornith');
+    expect(reloaded.ornithApiKey).toBe('local-secret');
+    expect(reloaded.azureApiKey).toBe('');
+  });
+
+  it('rejects saving simultaneous Ornith and Azure keys', async () => {
+    const settings = await getSettings();
+    settings.aiProvider = 'ornith';
+    settings.ornithApiKey = 'ornith-secret';
+    settings.azureApiKey = 'azure-secret';
+    await expect(saveSettings(settings)).rejects.toThrow('不可同時儲存');
+  });
+
+  it('rejects a provider/key mismatch instead of silently switching providers', async () => {
+    const settings = await getSettings();
+    settings.aiProvider = 'ornith';
+    settings.azureApiKey = 'azure-secret';
+    await expect(saveSettings(settings)).rejects.toThrow('不一致');
+  });
+
+  it('fails closed when stored data explicitly has no provider but contains a key', async () => {
+    store.set('fwa:settings', {
+      ...DEFAULT_SETTINGS,
+      aiProvider: '',
+      ornithApiKey: 'orphaned-key',
+    });
+    const settings = await getSettings();
+    expect(settings.aiProvider).toBe('');
+    expect(settings.ornithApiKey).toBe('');
+    expect(settings.azureApiKey).toBe('');
+  });
+
+  it('rejects importing an explicit blank provider with an API key', async () => {
+    const payload = JSON.parse(await exportFullSettings());
+    payload.settings.aiProvider = '';
+    payload.settings.ornithApiKey = 'orphaned-key';
+    await expect(importFullSettings(JSON.stringify(payload))).rejects.toThrow('尚未選擇 Provider');
+  });
+
+  it('migrates settings saved before provider selection to Azure', async () => {
+    store.set('fwa:settings', {
+      ...DEFAULT_SETTINGS,
+      aiProvider: undefined,
+      azureEndpoint: 'https://legacy.openai.azure.com',
+      azureDeployment: 'gpt-4.1',
+      azureApiKey: 'legacy-key',
+    });
+    const legacy = { ...(store.get('fwa:settings') as Record<string, unknown>) };
+    delete legacy.aiProvider;
+    store.set('fwa:settings', legacy);
+    expect((await getSettings()).aiProvider).toBe('azure');
   });
 
   it('round-trips all local settings in one portable JSON file', async () => {

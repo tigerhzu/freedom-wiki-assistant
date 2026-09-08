@@ -1,0 +1,21 @@
+<!doctype html><html lang="zh-Hant"><meta charset="utf-8"><title>AI 排版確認預覽</title><body>
+<button id="review">預覽人工確認</button><button id="loading">預覽等待提示</button>
+<script type="module">
+import { AiLayoutFeature } from '/src/content/ai-layout.ts';
+import { TextareaAdapter } from '/src/content/editor-adapter.ts';
+import { showLoadingToast } from '/src/content/ui.ts';
+const textarea = document.createElement('textarea');
+const original = Array.from({length: 70}, (_, i) => `第 ${i + 1} 項：請確認設備名稱、網路設定與聯絡窗口。`).join('\n');
+textarea.value = original;
+const feature = new AiLayoutFeature(new TextareaAdapter(textarea));
+function review() {
+ feature.showReviewModal({title: 'AI 排版預覽（整篇文章；確認後才會寫入編輯器，不會自動儲存）', original, target: {mode:'document'}, result: {
+ formatted_content: original.replaceAll('請確認', '**請確認**'),
+ warnings: Array.from({length: 4}, (_, i) => `第 ${i + 1} 段：請人工核對標題層級、表格欄位與原文資訊是否一致。`),
+ changes: Array.from({length: 32}, (_, i) => `第 ${i + 1} 項：整理標題、表格與注意事項，保留原文的設備名稱與技術資訊。`)
+ }});
+}
+document.querySelector('#review').onclick = review;
+document.querySelector('#loading').onclick = () => {const loading = showLoadingToast('AI 正在排版整篇文章（第 1/2 段），請稍候…'); setTimeout(() => loading.close(), 15000);};
+review();
+</script></body></html>

@@ -1,4 +1,8 @@
 import cssText from '../styles/extension.css?inline';
+import studioCss from '../styles/studio.css?inline';
+import workspaceCss from '../styles/workspace-panels.css?inline';
+import petCss from '../styles/pet.css?inline';
+import { icon } from './icons';
 
 /**
  * Shadow-DOM helpers shared by all content UI. Each feature gets its own
@@ -15,7 +19,7 @@ export function createShadowHost(id: string): { host: HTMLElement; root: ShadowR
   host.id = id;
   const root = host.attachShadow({ mode: 'open' });
   const style = document.createElement('style');
-  style.textContent = cssText;
+  style.textContent = `${cssText}\n${studioCss}\n${workspaceCss}\n${petCss}`;
   root.appendChild(style);
   document.documentElement.appendChild(host);
   return { host, root };
@@ -45,7 +49,7 @@ let toastArea: HTMLElement | null = null;
 function ensureToastArea(): HTMLElement {
   const { root } = createShadowHost('fwa-toast-host');
   if (!toastArea || !root.contains(toastArea)) {
-    toastArea = el('div', { class: 'fwa-toast-area' });
+    toastArea = el('div', { class: 'fwa-toast-area', 'aria-live': 'polite', 'aria-relevant': 'additions text' });
     root.appendChild(toastArea);
   }
   return toastArea;
@@ -53,7 +57,10 @@ function ensureToastArea(): HTMLElement {
 
 export function showToast(message: string, kind: 'info' | 'success' | 'error' = 'info', ms = 4000): void {
   const area = ensureToastArea();
-  const toast = el('div', { class: `fwa-toast ${kind}` }, [el('span', { class: 'msg', text: message })]);
+  const toast = el('div', { class: `fwa-toast ${kind}`, role: kind === 'error' ? 'alert' : 'status' }, [
+    icon(kind === 'success' ? 'check' : kind === 'error' ? 'close' : 'book', 17),
+    el('span', { class: 'msg', text: message }),
+  ]);
   area.appendChild(toast);
   window.setTimeout(() => toast.remove(), ms);
 }
@@ -67,11 +74,29 @@ export interface LoadingToastHandle {
 /** Indeterminate "still working" toast (no progress fraction) — closed by the caller once the async call settles. */
 export function showLoadingToast(message: string): LoadingToastHandle {
   const area = ensureToastArea();
-  const label = el('span', { class: 'msg', text: message });
-  const toast = el('div', { class: 'fwa-toast info' }, [label]);
+  const label = el('span', { text: message });
+  const elapsed = el('span', { class: 'fwa-loading-elapsed', 'aria-live': 'off', text: ' · 已耗時 0.0 秒' });
+  const toast = el('div', { class: 'fwa-loading-toast', role: 'status' }, [
+    el('span', { class: 'fwa-loading-spinner', 'aria-hidden': 'true' }),
+    el('span', { class: 'fwa-loading-content' }, [label, elapsed]),
+  ]);
   area.appendChild(toast);
+  const frame = window.requestAnimationFrame(() => toast.classList.add('fwa-loading-visible'));
+  const startedAt = performance.now();
+  const timer = window.setInterval(() => {
+    if (!toast.isConnected) {
+      window.clearInterval(timer);
+      return;
+    }
+    elapsed.textContent = ` · 已耗時 ${((performance.now() - startedAt) / 1000).toFixed(1)} 秒`;
+  }, 1000);
   return {
-    close: () => toast.remove(),
+    close: () => {
+      window.clearInterval(timer);
+      window.cancelAnimationFrame(frame);
+      toast.classList.remove('fwa-loading-visible');
+      window.setTimeout(() => toast.remove(), 220);
+    },
     setMessage: (next: string) => {
       label.textContent = next;
     },
@@ -149,19 +174,37 @@ export interface ModalHandle {
   layer: HTMLElement;
 }
 
+const activeModals: Array<{ hostId: string; close(): void }> = [];
+let modalSequence = 0;
+
+function deepActiveElement(): Element | null {
+  let active = document.activeElement;
+  while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+  return active;
+}
+
 export function openModal(
   title: string,
   hostId = 'fwa-modal-host',
   extraClass = '',
   dismissible = true,
 ): ModalHandle {
+  // Reusing a host is an intentional replacement; release its keyboard hooks
+  // and close callbacks before mounting the next dialog.
+  activeModals.find((entry) => entry.hostId === hostId)?.close();
+  const previousFocus = deepActiveElement();
   const { root } = createShadowHost(hostId);
   root.querySelector('.fwa-modal-backdrop')?.remove();
 
+  const titleId = `fwa-dialog-title-${++modalSequence}`;
   const body = el('div', { class: 'fwa-modal-body' });
   const footer = el('div', { class: 'fwa-modal-footer' });
-  const modal = el('div', { class: extraClass ? `fwa-modal ${extraClass}` : 'fwa-modal' }, [
-    el('div', { class: 'fwa-modal-header', text: title }),
+  const header = el('div', { class: 'fwa-modal-header' }, [el('h2', { class: 'fwa-modal-title', id: titleId, text: title })]);
+  const modal = el('div', {
+    class: extraClass ? `fwa-modal ${extraClass}` : 'fwa-modal', role: 'dialog',
+    'aria-modal': 'true', 'aria-labelledby': titleId, tabindex: '-1',
+  }, [
+    header,
     body,
     footer,
   ]);
@@ -174,13 +217,31 @@ export function openModal(
     closed = true;
     backdrop.remove();
     document.removeEventListener('keydown', onKey, true);
+    const index = activeModals.findIndex((entry) => entry.close === close);
+    const wasTopmost = index === activeModals.length - 1;
+    if (index !== -1) activeModals.splice(index, 1);
+    if (wasTopmost && previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus({ preventScroll: true });
     for (const callback of closeCallbacks) callback();
     closeCallbacks.clear();
   };
   const onKey = (e: KeyboardEvent) => {
+    if (activeModals.at(-1)?.close !== close) return;
     if (dismissible && e.key === 'Escape') {
+      e.preventDefault();
       e.stopPropagation();
       close();
+      return;
+    }
+    if (e.key === 'Tab') {
+      const focusable = Array.from(backdrop.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], summary, [tabindex="0"]',
+      )).filter((node) => !node.closest('[hidden], [inert], fieldset:disabled') && node.getClientRects().length > 0);
+      const active = deepActiveElement();
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (!first) { e.preventDefault(); modal.focus(); }
+      else if (e.shiftKey && (active === modal || active === first || !backdrop.contains(active))) { e.preventDefault(); last?.focus(); }
+      else if (!e.shiftKey && (active === last || !backdrop.contains(active))) { e.preventDefault(); first.focus(); }
     }
   };
   backdrop.addEventListener('mousedown', (e) => {
@@ -188,7 +249,14 @@ export function openModal(
   });
   document.addEventListener('keydown', onKey, true);
 
+  if (dismissible) {
+    const closeButton = el('button', { class: 'fwa-icon-btn fwa-modal-close', type: 'button', 'aria-label': '關閉對話框', title: '關閉 · Esc' }, [icon('close', 17)]);
+    closeButton.addEventListener('click', close);
+    header.appendChild(closeButton);
+  }
+  activeModals.push({ hostId, close });
   root.appendChild(backdrop);
+  modal.focus({ preventScroll: true });
   return {
     close,
     onClose(callback) {
